@@ -1,0 +1,17 @@
+# Node/React
+ecoscan-frontend/node_modules/
+ecoscan-frontend/dist/
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.env
+.venv
+venv/
+
+# Google Cloud Service Account Keys
+*.json
+!ecoscan-frontend/package.json
+!ecoscan-frontend/package-lock.json
+!ecoscan-frontend/firebase.json

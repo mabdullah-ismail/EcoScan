@@ -1,0 +1,38 @@
+{
+  "hosting": {
+    "site": "ecoscan-pk",
+    "public": "dist",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/scan",
+        "run": {
+          "serviceId": "ecoscan-backend",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/speak",
+        "run": {
+          "serviceId": "ecoscan-backend",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/market-data",
+        "run": {
+          "serviceId": "ecoscan-backend",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}
