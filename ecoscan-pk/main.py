@@ -55,19 +55,21 @@ If the image does not clearly contain a building material (e.g., it is a person,
 If it IS a building material, identify it precisely. Also provide a realistic, specific eco-friendly alternative material. CRITICAL: You must NEVER suggest "Recycled [Material]" as an alternative. You must suggest a completely different innovative eco-friendly substitute (e.g., instead of "Recycled Wood", suggest "Bamboo" or "Hempcrete"; instead of "Recycled Brick", suggest "AAC Blocks" or "Rammed Earth"). Provide its approximate market cost in PKR, the carbon footprint of the original vs alternative, and the % saving. Provide urdu translation of the material.
 Reply ONLY with JSON — no other text. Example format: {"material": "Fired Brick", "confidence": 0.91, "cost": 12, "carbon": 0.24, "alt": "AAC Blocks", "alt_carbon": 0.09, "saving": 62, "urdu": "fired brick"}"""
     
-    response = model.generate_content([prompt, image])
-    text = response.text.strip()
-    
-    # Clean up response if Gemini adds backticks
-    if text.startswith("```"):
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
-    text = text.strip()
-    
     try:
+        response = model.generate_content([prompt, image])
+        text = response.text.strip()
+        
+        # Clean up response if Gemini adds backticks
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        text = text.strip()
+        
         result = json.loads(text)
-    except json.JSONDecodeError:
+    except Exception as e:
+        print("Gemini API Error in /scan:", e)
+        # Fallback response if API fails (e.g. quota limit)
         result = {"material": "Concrete", "confidence": 0.5, "cost": 180, "carbon": 0.41, "alt": "Fly Ash Concrete", "alt_carbon": 0.21, "saving": 49, "urdu": "concrete"}
         
     material_name = result.get("material", "None")
