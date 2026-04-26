@@ -123,7 +123,7 @@ const ScannerScreen = () => {
         formData.append("file", blob, "capture.jpg");
         
         try {
-            const res = await fetch("/scan", {
+            const res = await fetch("https://ecoscan-backend-rxmp.onrender.com/scan", {
                 method: "POST",
                 body: formData,
             });
@@ -256,7 +256,7 @@ const AnalysisScreen = () => {
         if (isPlaying || !result.urdu_response) return;
         setIsPlaying(true);
         try {
-            const res = await fetch("/speak", {
+            const res = await fetch("https://ecoscan-backend-rxmp.onrender.com/speak", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ text: result.urdu_response })
@@ -374,7 +374,7 @@ const MarketScreen = () => {
     const [showNotifications, setShowNotifications] = useState(false);
 
     useEffect(() => {
-        fetch("/market-data")
+        fetch("https://ecoscan-backend-rxmp.onrender.com/market-data")
             .then(res => res.json())
             .then(data => setMarketData(data))
             .catch(err => console.error(err));
