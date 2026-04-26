@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import google.generativeai as genai
 from google.cloud import texttospeech
 from PIL import Image
-import io, json, base64, os
+import io, json, base64, os, asyncio
 
 app = FastAPI()
 
@@ -56,7 +56,10 @@ If it IS a building material, identify it precisely. Also provide a realistic, s
 Reply ONLY with JSON — no other text. Example format: {"material": "Fired Brick", "confidence": 0.91, "cost": 12, "carbon": 0.24, "alt": "AAC Blocks", "alt_carbon": 0.09, "saving": 62, "urdu": "fired brick"}"""
     
     try:
-        response = model.generate_content([prompt, image])
+        response = await asyncio.wait_for(
+            model.generate_content_async([prompt, image]),
+            timeout=15.0
+        )
         text = response.text.strip()
         
         # Clean up response if Gemini adds backticks
@@ -140,7 +143,7 @@ async def speak_urdu(data: dict):
     return {"audio": audio_b64}
 
 @app.get("/market-data")
-def market_data():
+async def market_data():
     prompt = """Fetch the current construction material prices in Lahore, Pakistan today (Cement, Steel, Bricks, Sand, Crush).
 Provide the response EXACTLY in the following JSON format (do not include markdown formatting or backticks, just the raw JSON object):
 {
@@ -164,7 +167,10 @@ Provide the response EXACTLY in the following JSON format (do not include markdo
 Ensure the prices and predictions are as accurate as possible based on today's market rates in Pakistan."""
 
     try:
-        response = model.generate_content(prompt, tools='google_search_retrieval')
+        response = await asyncio.wait_for(
+            model.generate_content_async(prompt, tools='google_search_retrieval'),
+            timeout=15.0
+        )
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("```")[1]
