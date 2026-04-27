@@ -182,21 +182,33 @@ Example: {{"cost": 500, "carbon": 0.4, "alt": "Hempcrete", "alt_carbon": 0.08, "
 
     # ── Build Urdu description ────────────────────────────────────────────────
     urdu_name = d.get("urdu") or material_name
+
+    # Carbon saving %: how much less carbon the alternative emits
+    carbon = d.get("carbon", 0.5)
+    alt_carbon = d.get("alt_carbon", 0.2)
+    carbon_saving_pct = round((carbon - alt_carbon) / carbon * 100) if carbon > 0 else d.get("saving", 35)
+
+    # Cost saving %: stored in dict as 'saving' (represents cost difference %)
+    cost_saving_pct = d.get("saving", 35)
+
     urdu_text = (
         f"Yeh {urdu_name} hai. "
         f"Iska eco alternative {d['alt']} hai "
-        f"jo {d['saving']} fisad kam carbon deta hai "
-        f"aur environment ke liye behtar hai."
+        f"jo {carbon_saving_pct} fisad kam carbon deta hai "
+        f"aur {cost_saving_pct} fisad sasta bhi hai. "
+        f"Environment ke liye behtar choice hai."
     )
 
     return {
         "material": material_name,
         "confidence": confidence,
-        "carbon": d["carbon"],
+        "carbon": carbon,
         "cost": d["cost"],
         "alt": d["alt"],
-        "alt_carbon": d["alt_carbon"],
-        "saving": d["saving"],
+        "alt_carbon": alt_carbon,
+        "carbon_saving_pct": carbon_saving_pct,
+        "cost_saving_pct": cost_saving_pct,
+        "saving": cost_saving_pct,  # kept for backwards compatibility
         "urdu_response": urdu_text,
     }
 

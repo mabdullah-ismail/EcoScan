@@ -324,12 +324,12 @@ const AnalysisScreen = () => {
                             <div className="grid grid-cols-2 gap-stack-md">
                                 <div className="bg-primary-container/10 p-stack-md rounded-xl border border-primary-container/20 text-center">
                                     <p className="font-label-bold text-primary">Cost Benefit</p>
-                                    <p className="font-display-xl text-on-primary-fixed">{result.saving}%</p>
+                                    <p className="font-display-xl text-on-primary-fixed">{result.cost_saving_pct ?? result.saving}%</p>
                                     <p className="font-label-sm text-on-primary-fixed-variant">Cheaper</p>
                                 </div>
                                 <div className="bg-tertiary-container/10 p-stack-md rounded-xl border border-tertiary-container/20 text-center">
                                     <p className="font-label-bold text-tertiary">Impact</p>
-                                    <p className="font-display-xl text-on-tertiary-fixed">45%</p>
+                                    <p className="font-display-xl text-on-tertiary-fixed">{result.carbon_saving_pct ?? Math.round((result.carbon - result.alt_carbon) / result.carbon * 100)}%</p>
                                     <p className="font-label-sm text-on-tertiary-fixed-variant">Carbon Savings</p>
                                 </div>
                             </div>
