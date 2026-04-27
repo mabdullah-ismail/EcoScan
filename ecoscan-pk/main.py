@@ -168,7 +168,7 @@ Ensure the prices and predictions are as accurate as possible based on today's m
 
     try:
         response = await asyncio.wait_for(
-            model.generate_content_async(prompt, tools='google_search_retrieval'),
+            model.generate_content_async(prompt, tools='google_search'),
             timeout=30.0
         )
         text = response.text.strip()
