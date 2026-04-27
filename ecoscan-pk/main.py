@@ -62,36 +62,32 @@ async def scan_material(file: UploadFile = File(...)):
         }
     }
 
-    prompt = """Analyze the image and identify the primary construction or building material shown. 
-If the image does not clearly contain a building material (e.g., it is a person, a random object, a landscape, or nature), reply with {"material": "None", "confidence": 0.0}.
-If it IS a building material, identify it precisely. Also provide a realistic, specific eco-friendly alternative material. CRITICAL: You must NEVER suggest "Recycled [Material]" as an alternative. You must suggest a completely different innovative eco-friendly substitute (e.g., instead of "Recycled Wood", suggest "Bamboo" or "Hempcrete"; instead of "Recycled Brick", suggest "AAC Blocks" or "Rammed Earth"). Provide its approximate market cost in PKR, the carbon footprint of the original vs alternative, and the % saving. Provide urdu translation of the material.
-Reply ONLY with JSON — no other text. Example format: {"material": "Fired Brick", "confidence": 0.91, "cost": 12, "carbon": 0.24, "alt": "AAC Blocks", "alt_carbon": 0.09, "saving": 62, "urdu": "fired brick"}"""
+    # ── STAGE 1: Ask Gemini ONLY for the material name + confidence ──────────
+    # This is a lightweight prompt that returns fast for all scans.
+    id_prompt = """Look at this image and identify the primary construction or building material.
+If no clear construction/building material is visible, reply: {"material": "None", "confidence": 0.0}
+Otherwise reply ONLY with JSON, no extra text. Example: {"material": "Fired Brick", "confidence": 0.91}"""
 
     try:
-        response = await asyncio.wait_for(
-            model.generate_content_async([prompt, image_part]),
+        id_response = await asyncio.wait_for(
+            model.generate_content_async([id_prompt, image_part]),
             timeout=30.0
         )
-        text = response.text.strip()
-
-        # Clean up response if Gemini adds backticks
+        text = id_response.text.strip()
         if text.startswith("```"):
             text = text.split("```")[1]
             if text.startswith("json"):
                 text = text[4:]
-        text = text.strip()
-
-        result = json.loads(text)
+        id_result = json.loads(text.strip())
     except Exception as e:
         import traceback
-        print("Gemini API Error in /scan:", e)
+        print("Gemini ID Error in /scan:", e)
         print(traceback.format_exc())
-        # Fallback response if API fails (e.g. quota limit)
-        result = {"material": "Concrete", "confidence": 0.5, "cost": 180, "carbon": 0.41, "alt": "Fly Ash Concrete", "alt_carbon": 0.21, "saving": 49, "urdu": "concrete"}
-        
-    material_name = result.get("material", "None")
-    confidence = result.get("confidence", 0.0)
-    
+        id_result = {"material": "Concrete", "confidence": 0.5}
+
+    material_name = id_result.get("material", "None")
+    confidence = id_result.get("confidence", 0.0)
+
     if material_name == "None" or confidence < 0.2:
         return {
             "material": "No material detected",
@@ -103,33 +99,45 @@ Reply ONLY with JSON — no other text. Example format: {"material": "Fired Bric
             "saving": 0,
             "urdu_response": "Tasweer mein koi tameeri mawad nahi mila."
         }
-        
-    # Check in materials dictionary (case-insensitive)
+
+    # ── STAGE 2: Look up hardcoded dictionary (instant, no API call) ─────────
     material_lower = material_name.lower()
     matched_key = next((k for k in MATERIALS.keys() if k.lower() in material_lower or material_lower in k.lower()), None)
-    
+
     if matched_key:
+        # ✅ Found in hardcoded dict — super fast, no extra API call needed
         d = MATERIALS[matched_key]
     else:
-        # Fallback for unknown dynamic materials using Gemini's response
-        d = {
-            "carbon": result.get("carbon", 0.5), 
-            "cost": result.get("cost", 500), 
-            "alt": result.get("alt", "Eco-friendly alternative"), 
-            "alt_carbon": result.get("alt_carbon", 0.2), 
-            "saving": result.get("saving", 35), 
-            "urdu": result.get("urdu", material_name)
-        }
-    
-    # Use material_name as urdu fallback if the field is empty or missing
-    urdu_name = d.get('urdu') or material_name
+        # ── STAGE 3: Unknown material — ask Gemini for eco data ──────────────
+        print(f"Unknown material '{material_name}' — calling Gemini for eco data...")
+        eco_prompt = f"""For the construction material "{material_name}", provide eco-friendly alternative data.
+CRITICAL: Do NOT suggest "Recycled {material_name}" — suggest a completely different innovative substitute.
+Reply ONLY with JSON, no extra text.
+Example: {{"cost": 500, "carbon": 0.4, "alt": "Hempcrete", "alt_carbon": 0.08, "saving": 80, "urdu": "urdu name here"}}"""
+        try:
+            eco_response = await asyncio.wait_for(
+                model.generate_content_async(eco_prompt),
+                timeout=25.0
+            )
+            eco_text = eco_response.text.strip()
+            if eco_text.startswith("```"):
+                eco_text = eco_text.split("```")[1]
+                if eco_text.startswith("json"):
+                    eco_text = eco_text[4:]
+            d = json.loads(eco_text.strip())
+        except Exception as e:
+            print("Gemini eco fallback error:", e)
+            d = {"carbon": 0.5, "cost": 500, "alt": "Eco-friendly alternative", "alt_carbon": 0.2, "saving": 35, "urdu": material_name}
+
+    # ── Build Urdu description ────────────────────────────────────────────────
+    urdu_name = d.get("urdu") or material_name
     urdu_text = (
         f"Yeh {urdu_name} hai. "
         f"Iska eco alternative {d['alt']} hai "
         f"jo {d['saving']} fisad kam carbon deta hai "
         f"aur environment ke liye behtar hai."
     )
-    
+
     return {
         "material": material_name,
         "confidence": confidence,
