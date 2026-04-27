@@ -22,7 +22,7 @@ if gemai_key:
     genai.configure(api_key=gemai_key)
 else:
     print("WARNING: GEMINI_API_KEY environment variable not set.")
-model = genai.GenerativeModel("gemini-3.1-flash-lite-preview")
+model = genai.GenerativeModel("gemini-1.5-flash")
 
 # Load Google Cloud Credentials using a relative path that works anywhere
 cred_path = os.path.join(os.path.dirname(__file__), "..", "ecoscan-494416-31a68658518d.json")
@@ -58,7 +58,7 @@ Reply ONLY with JSON — no other text. Example format: {"material": "Fired Bric
     try:
         response = await asyncio.wait_for(
             model.generate_content_async([prompt, image]),
-            timeout=15.0
+            timeout=30.0
         )
         text = response.text.strip()
         
@@ -169,7 +169,7 @@ Ensure the prices and predictions are as accurate as possible based on today's m
     try:
         response = await asyncio.wait_for(
             model.generate_content_async(prompt, tools='google_search_retrieval'),
-            timeout=15.0
+            timeout=30.0
         )
         text = response.text.strip()
         if text.startswith("```"):
