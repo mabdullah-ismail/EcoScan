@@ -324,8 +324,14 @@ const AnalysisScreen = () => {
                             <div className="grid grid-cols-2 gap-stack-md">
                                 <div className="bg-primary-container/10 p-stack-md rounded-xl border border-primary-container/20 text-center">
                                     <p className="font-label-bold text-primary">Cost Benefit</p>
-                                    <p className="font-display-xl text-on-primary-fixed">{result.cost_saving_pct ?? result.saving}%</p>
-                                    <p className="font-label-sm text-on-primary-fixed-variant">Cheaper</p>
+                                    <p className="font-display-xl text-on-primary-fixed">
+                                        {(result.cost_saving_pct ?? result.saving) >= 0
+                                            ? `${result.cost_saving_pct ?? result.saving}%`
+                                            : `${Math.abs(result.cost_saving_pct ?? result.saving)}%`}
+                                    </p>
+                                    <p className="font-label-sm text-on-primary-fixed-variant">
+                                        {(result.cost_saving_pct ?? result.saving) >= 0 ? 'Cheaper' : 'Higher Upfront Cost'}
+                                    </p>
                                 </div>
                                 <div className="bg-tertiary-container/10 p-stack-md rounded-xl border border-tertiary-container/20 text-center">
                                     <p className="font-label-bold text-tertiary">Impact</p>
