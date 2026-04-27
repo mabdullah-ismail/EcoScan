@@ -16,13 +16,49 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configure Gemini — use environment variable for security
-gemai_key = os.environ.get("GEMINI_API_KEY")
-if gemai_key:
-    genai.configure(api_key=gemai_key)
-else:
-    print("WARNING: GEMINI_API_KEY environment variable not set.")
-model = genai.GenerativeModel("gemini-2.0-flash")
+# ── Gemini API Key Rotation ───────────────────────────────────────────────────
+# Add GEMINI_API_KEY and GEMINI_API_KEY_2 (and beyond) in Render environment vars.
+# When one key hits its quota (429), the system automatically retries with the next.
+
+_api_keys = [k for k in [
+    os.environ.get("GEMINI_API_KEY"),
+    os.environ.get("GEMINI_API_KEY_2"),
+    os.environ.get("GEMINI_API_KEY_3"),
+] if k]  # filter out any unset keys
+
+if not _api_keys:
+    print("WARNING: No GEMINI_API_KEY environment variables set!")
+
+_current_key_index = 0
+
+def _get_model():
+    """Return a Gemini model configured with the current active API key."""
+    genai.configure(api_key=_api_keys[_current_key_index])
+    return genai.GenerativeModel("gemini-2.0-flash")
+
+async def generate_with_rotation(prompt_parts, timeout=30.0):
+    """Call Gemini with automatic failover to the next key on quota errors (429)."""
+    global _current_key_index
+    last_error = None
+    for attempt in range(len(_api_keys)):
+        idx = (_current_key_index + attempt) % len(_api_keys)
+        try:
+            genai.configure(api_key=_api_keys[idx])
+            m = genai.GenerativeModel("gemini-2.0-flash")
+            response = await asyncio.wait_for(
+                m.generate_content_async(prompt_parts),
+                timeout=timeout
+            )
+            _current_key_index = idx  # remember the working key
+            return response
+        except Exception as e:
+            if "429" in str(e) or "ResourceExhausted" in str(type(e).__name__):
+                print(f"Key #{idx+1} quota exhausted — trying next key...")
+                last_error = e
+                continue
+            raise  # re-raise non-quota errors immediately
+    raise last_error  # all keys exhausted
+
 
 # Load Google Cloud Credentials using a relative path that works anywhere
 cred_path = os.path.join(os.path.dirname(__file__), "..", "ecoscan-494416-31a68658518d.json")
@@ -122,10 +158,7 @@ If no clear construction/building material is visible, reply: {"material": "None
 Otherwise reply ONLY with JSON, no extra text. Example: {"material": "Fired Brick", "confidence": 0.91}"""
 
     try:
-        id_response = await asyncio.wait_for(
-            model.generate_content_async([id_prompt, image_part]),
-            timeout=30.0
-        )
+        id_response = await generate_with_rotation([id_prompt, image_part], timeout=30.0)
         text = id_response.text.strip()
         if text.startswith("```"):
             text = text.split("```")[1]
@@ -168,10 +201,7 @@ CRITICAL: Do NOT suggest "Recycled {material_name}" — suggest a completely dif
 Reply ONLY with JSON, no extra text.
 Example: {{"cost": 500, "carbon": 0.4, "alt": "Hempcrete", "alt_carbon": 0.08, "saving": 80, "urdu": "urdu name here"}}"""
         try:
-            eco_response = await asyncio.wait_for(
-                model.generate_content_async(eco_prompt),
-                timeout=25.0
-            )
+            eco_response = await generate_with_rotation(eco_prompt, timeout=25.0)
             eco_text = eco_response.text.strip()
             if eco_text.startswith("```"):
                 eco_text = eco_text.split("```")[1]
