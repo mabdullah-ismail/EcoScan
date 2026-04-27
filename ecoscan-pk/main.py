@@ -49,29 +49,42 @@ def health():
 @app.post("/scan")
 async def scan_material(file: UploadFile = File(...)):
     img_bytes = await file.read()
-    image = Image.open(io.BytesIO(img_bytes))
+
+    # Detect MIME type from uploaded file
+    content_type = file.content_type or "image/jpeg"
+
+    # Pass image as inline bytes dict (required for Gemini 2.x+)
+    image_part = {
+        "inline_data": {
+            "mime_type": content_type,
+            "data": base64.b64encode(img_bytes).decode("utf-8")
+        }
+    }
+
     prompt = """Analyze the image and identify the primary construction or building material shown. 
 If the image does not clearly contain a building material (e.g., it is a person, a random object, a landscape, or nature), reply with {"material": "None", "confidence": 0.0}.
 If it IS a building material, identify it precisely. Also provide a realistic, specific eco-friendly alternative material. CRITICAL: You must NEVER suggest "Recycled [Material]" as an alternative. You must suggest a completely different innovative eco-friendly substitute (e.g., instead of "Recycled Wood", suggest "Bamboo" or "Hempcrete"; instead of "Recycled Brick", suggest "AAC Blocks" or "Rammed Earth"). Provide its approximate market cost in PKR, the carbon footprint of the original vs alternative, and the % saving. Provide urdu translation of the material.
 Reply ONLY with JSON — no other text. Example format: {"material": "Fired Brick", "confidence": 0.91, "cost": 12, "carbon": 0.24, "alt": "AAC Blocks", "alt_carbon": 0.09, "saving": 62, "urdu": "fired brick"}"""
-    
+
     try:
         response = await asyncio.wait_for(
-            model.generate_content_async([prompt, image]),
+            model.generate_content_async([prompt, image_part]),
             timeout=30.0
         )
         text = response.text.strip()
-        
+
         # Clean up response if Gemini adds backticks
         if text.startswith("```"):
             text = text.split("```")[1]
             if text.startswith("json"):
                 text = text[4:]
         text = text.strip()
-        
+
         result = json.loads(text)
     except Exception as e:
+        import traceback
         print("Gemini API Error in /scan:", e)
+        print(traceback.format_exc())
         # Fallback response if API fails (e.g. quota limit)
         result = {"material": "Concrete", "confidence": 0.5, "cost": 180, "carbon": 0.41, "alt": "Fly Ash Concrete", "alt_carbon": 0.21, "saving": 49, "urdu": "concrete"}
         
