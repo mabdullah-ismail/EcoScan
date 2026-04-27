@@ -29,18 +29,69 @@ cred_path = os.path.join(os.path.dirname(__file__), "..", "ecoscan-494416-31a686
 if os.path.exists(cred_path):
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = cred_path
 
-# Materials database with eco alternatives (Lahore market prices)
+# Materials database with eco alternatives (Lahore market prices, PKR)
 MATERIALS = {
-    "Fired Brick": {"carbon":0.24, "cost":12, "alt":"AAC Blocks", "alt_carbon":0.09, "saving":62, "urdu":"fired brick"},
-    "Brick": {"carbon":0.24, "cost":12, "alt":"AAC Blocks", "alt_carbon":0.09, "saving":62, "urdu":"eent"},
-    "Concrete": {"carbon":0.41, "cost":180, "alt":"Fly Ash Concrete", "alt_carbon":0.21, "saving":49, "urdu":"concrete"},
-    "Steel Rebar": {"carbon":1.46, "cost":320, "alt":"GFRP (Basalt) Rebar", "alt_carbon":0.51, "saving":65, "urdu":"steel saria"},
-    "Steel": {"carbon":1.46, "cost":320, "alt":"GFRP (Basalt) Rebar", "alt_carbon":0.51, "saving":65, "urdu":"steel"},
-    "Timber": {"carbon":0.31, "cost":850, "alt":"Bamboo", "alt_carbon":0.05, "saving":84, "urdu":"lakri"},
-    "Wood": {"carbon":0.31, "cost":850, "alt":"Bamboo", "alt_carbon":0.05, "saving":84, "urdu":"lakri"},
-    "Bamboo": {"carbon":0.05, "cost":450, "alt":"Hempcrete", "alt_carbon":0.02, "saving":60, "urdu":"baans"},
-    "Ceramic Tile": {"carbon":0.59, "cost":95, "alt":"Terrazzo Tiles", "alt_carbon":0.22, "saving":63, "urdu":"ceramic tile"},
-    "Tile": {"carbon":0.59, "cost":95, "alt":"Terrazzo Tiles", "alt_carbon":0.22, "saving":63, "urdu":"tile"},
+    # ── Bricks ────────────────────────────────────────────────────────────────
+    "Fired Brick":         {"carbon":0.24, "cost":12,   "alt":"AAC Blocks",                  "alt_carbon":0.09, "saving":62, "urdu":"pakki eent"},
+    "Brick":               {"carbon":0.24, "cost":12,   "alt":"AAC Blocks",                  "alt_carbon":0.09, "saving":62, "urdu":"eent"},
+    "Red Clay Brick":      {"carbon":0.22, "cost":9,    "alt":"Fly Ash Bricks",              "alt_carbon":0.08, "saving":64, "urdu":"lal eent"},
+    "Clay Brick":          {"carbon":0.22, "cost":9,    "alt":"Fly Ash Bricks",              "alt_carbon":0.08, "saving":64, "urdu":"mitti ki eent"},
+    "Fly Ash Brick":       {"carbon":0.08, "cost":10,   "alt":"AAC Blocks",                  "alt_carbon":0.06, "saving":25, "urdu":"fly ash eent"},
+
+    # ── Cement ────────────────────────────────────────────────────────────────
+    "Concrete":            {"carbon":0.41, "cost":180,  "alt":"Fly Ash Concrete",            "alt_carbon":0.21, "saving":49, "urdu":"concrete"},
+    "Cement":              {"carbon":0.83, "cost":1480, "alt":"Fly Ash / Slag Cement",       "alt_carbon":0.35, "saving":58, "urdu":"cement"},
+    "OPC Cement":          {"carbon":0.83, "cost":1480, "alt":"Fly Ash / Slag Cement",       "alt_carbon":0.35, "saving":58, "urdu":"ordinary cement"},
+    "Solid Concrete Slab": {"carbon":0.41, "cost":180,  "alt":"Hollow Core Slabs",           "alt_carbon":0.22, "saving":46, "urdu":"solid concrete slab"},
+    "Concrete Slab":       {"carbon":0.41, "cost":180,  "alt":"Hollow Core Slabs",           "alt_carbon":0.22, "saving":46, "urdu":"concrete slab"},
+
+    # ── Sand & Aggregate ──────────────────────────────────────────────────────
+    "River Sand":          {"carbon":0.05, "cost":38000,"alt":"Crushed Stone Sand (Washed)", "alt_carbon":0.02, "saving":60, "urdu":"darya ki ret"},
+    "Sand":                {"carbon":0.05, "cost":38000,"alt":"Crushed Stone Sand (Washed)", "alt_carbon":0.02, "saving":60, "urdu":"ret"},
+
+    # ── Flooring ──────────────────────────────────────────────────────────────
+    "Marble":              {"carbon":0.45, "cost":220,  "alt":"Terrazzo (Chips Flooring)",   "alt_carbon":0.18, "saving":60, "urdu":"marmar"},
+    "Marble Flooring":     {"carbon":0.45, "cost":220,  "alt":"Terrazzo (Chips Flooring)",   "alt_carbon":0.18, "saving":60, "urdu":"marmar farsh"},
+    "Granite":             {"carbon":0.65, "cost":3500, "alt":"Recycled Glass Countertops",  "alt_carbon":0.22, "saving":66, "urdu":"granite"},
+    "Granite Counter":     {"carbon":0.65, "cost":3500, "alt":"Recycled Glass Countertops",  "alt_carbon":0.22, "saving":66, "urdu":"granite counter"},
+    "Ceramic Tile":        {"carbon":0.59, "cost":95,   "alt":"Earth/Clay Wall Plaster",     "alt_carbon":0.08, "saving":86, "urdu":"ceramic tile"},
+    "Ceramic Wall Tile":   {"carbon":0.59, "cost":95,   "alt":"Earth/Clay Wall Plaster",     "alt_carbon":0.08, "saving":86, "urdu":"deewar ka tile"},
+    "Tile":                {"carbon":0.59, "cost":95,   "alt":"Terrazzo Tiles",              "alt_carbon":0.22, "saving":63, "urdu":"tile"},
+
+    # ── Wood & Composites ─────────────────────────────────────────────────────
+    "Timber":              {"carbon":0.31, "cost":850,  "alt":"Bamboo",                      "alt_carbon":0.05, "saving":84, "urdu":"lakri"},
+    "Wood":                {"carbon":0.31, "cost":850,  "alt":"Bamboo",                      "alt_carbon":0.05, "saving":84, "urdu":"lakri"},
+    "Sheesham":            {"carbon":0.31, "cost":950,  "alt":"WPC (Wood Plastic Composite)","alt_carbon":0.12, "saving":61, "urdu":"sheesham"},
+    "Kail Wood":           {"carbon":0.28, "cost":800,  "alt":"WPC (Wood Plastic Composite)","alt_carbon":0.12, "saving":57, "urdu":"kail ki lakri"},
+    "Plywood":             {"carbon":0.45, "cost":750,  "alt":"Bamboo Boards",               "alt_carbon":0.05, "saving":89, "urdu":"plywood"},
+    "Plywood Ceiling":     {"carbon":0.45, "cost":750,  "alt":"Bamboo Boards",               "alt_carbon":0.05, "saving":89, "urdu":"plywood chhat"},
+    "Bamboo":              {"carbon":0.05, "cost":450,  "alt":"Hempcrete",                   "alt_carbon":0.02, "saving":60, "urdu":"baans"},
+
+    # ── Steel & Metal ─────────────────────────────────────────────────────────
+    "Steel Rebar":         {"carbon":1.46, "cost":320,  "alt":"Recycled Steel Rebar",        "alt_carbon":0.62, "saving":58, "urdu":"saria"},
+    "Steel Reinforcement": {"carbon":1.46, "cost":320,  "alt":"Recycled Steel Rebar",        "alt_carbon":0.62, "saving":58, "urdu":"taqatwaar saria"},
+    "Steel":               {"carbon":1.46, "cost":320,  "alt":"GFRP (Basalt) Rebar",         "alt_carbon":0.51, "saving":65, "urdu":"steel"},
+    "Aluminum":            {"carbon":8.24, "cost":4500, "alt":"UPVC Window Frames",          "alt_carbon":2.55, "saving":69, "urdu":"aluminum"},
+    "Aluminum Window":     {"carbon":8.24, "cost":4500, "alt":"UPVC Window Frames",          "alt_carbon":2.55, "saving":69, "urdu":"aluminum khirkiyaan"},
+
+    # ── Glass ─────────────────────────────────────────────────────────────────
+    "Glass":               {"carbon":0.85, "cost":350,  "alt":"Double Glazed Glass",         "alt_carbon":0.42, "saving":51, "urdu":"sheesha"},
+    "Single Glaze Glass":  {"carbon":0.85, "cost":350,  "alt":"Double Glazed Glass",         "alt_carbon":0.42, "saving":51, "urdu":"single sheesha"},
+
+    # ── Paint & Coatings ──────────────────────────────────────────────────────
+    "Paint":               {"carbon":2.10, "cost":1200, "alt":"Low-VOC Water-Based Paints",  "alt_carbon":0.90, "saving":57, "urdu":"rang"},
+    "Oil Paint":           {"carbon":2.10, "cost":1200, "alt":"Low-VOC Water-Based Paints",  "alt_carbon":0.90, "saving":57, "urdu":"oil rang"},
+    "Oil-Based Paint":     {"carbon":2.10, "cost":1200, "alt":"Low-VOC Water-Based Paints",  "alt_carbon":0.90, "saving":57, "urdu":"oil based rang"},
+
+    # ── Roofing ───────────────────────────────────────────────────────────────
+    "Bitumen":             {"carbon":0.38, "cost":180,  "alt":"White Solar-Reflective Paint","alt_carbon":0.12, "saving":68, "urdu":"bitumen"},
+    "Bitumen Roofing":     {"carbon":0.38, "cost":180,  "alt":"White Solar-Reflective Paint","alt_carbon":0.12, "saving":68, "urdu":"bitumen chhatt"},
+    "Roofing":             {"carbon":0.38, "cost":180,  "alt":"White Solar-Reflective Paint","alt_carbon":0.12, "saving":68, "urdu":"chhatt"},
+
+    # ── Piping ────────────────────────────────────────────────────────────────
+    "PVC":                 {"carbon":2.50, "cost":280,  "alt":"PPRC Piping",                 "alt_carbon":1.10, "saving":56, "urdu":"plastic pipe"},
+    "PVC Pipe":            {"carbon":2.50, "cost":280,  "alt":"PPRC Piping",                 "alt_carbon":1.10, "saving":56, "urdu":"PVC pipe"},
+    "Plastic Pipe":        {"carbon":2.50, "cost":280,  "alt":"PPRC Piping",                 "alt_carbon":1.10, "saving":56, "urdu":"plastic nali"},
 }
 
 @app.get("/health")
