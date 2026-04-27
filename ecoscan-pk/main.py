@@ -200,3 +200,14 @@ Ensure the prices and predictions are as accurate as possible based on today's m
                 "crush": { "price": "₨125", "trend": "-₨5 vs LW", "up": False }
             }
         }
+
+@app.get("/list-models")
+async def list_models():
+    try:
+        models = []
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                models.append(m.name)
+        return {"available_models": models}
+    except Exception as e:
+        return {"error": str(e)}
