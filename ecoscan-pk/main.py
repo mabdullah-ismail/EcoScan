@@ -38,6 +38,7 @@ MATERIALS = {
     "Steel": {"carbon":1.46, "cost":320, "alt":"GFRP (Basalt) Rebar", "alt_carbon":0.51, "saving":65, "urdu":"steel"},
     "Timber": {"carbon":0.31, "cost":850, "alt":"Bamboo", "alt_carbon":0.05, "saving":84, "urdu":"lakri"},
     "Wood": {"carbon":0.31, "cost":850, "alt":"Bamboo", "alt_carbon":0.05, "saving":84, "urdu":"lakri"},
+    "Bamboo": {"carbon":0.05, "cost":450, "alt":"Hempcrete", "alt_carbon":0.02, "saving":60, "urdu":"baans"},
     "Ceramic Tile": {"carbon":0.59, "cost":95, "alt":"Terrazzo Tiles", "alt_carbon":0.22, "saving":63, "urdu":"ceramic tile"},
     "Tile": {"carbon":0.59, "cost":95, "alt":"Terrazzo Tiles", "alt_carbon":0.22, "saving":63, "urdu":"tile"},
 }
@@ -120,9 +121,11 @@ Reply ONLY with JSON — no other text. Example format: {"material": "Fired Bric
             "urdu": result.get("urdu", material_name)
         }
     
+    # Use material_name as urdu fallback if the field is empty or missing
+    urdu_name = d.get('urdu') or material_name
     urdu_text = (
-        f"Yeh {d['urdu']} hai. "
-        f"Eco alternative {d['alt']} hai "
+        f"Yeh {urdu_name} hai. "
+        f"Iska eco alternative {d['alt']} hai "
         f"jo {d['saving']} fisad kam carbon deta hai "
         f"aur environment ke liye behtar hai."
     )
