@@ -22,7 +22,7 @@ if gemai_key:
     genai.configure(api_key=gemai_key)
 else:
     print("WARNING: GEMINI_API_KEY environment variable not set.")
-model = genai.GenerativeModel("gemini-1.5-flash-latest")
+model = genai.GenerativeModel("gemini-2.5-flash")
 
 # Load Google Cloud Credentials using a relative path that works anywhere
 cred_path = os.path.join(os.path.dirname(__file__), "..", "ecoscan-494416-31a68658518d.json")
