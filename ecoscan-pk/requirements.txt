@@ -6,3 +6,4 @@ google-cloud-texttospeech
 pillow
 groq
 httpx
+huggingface_hub

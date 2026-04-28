@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import google.generativeai as genai
 from google.cloud import texttospeech
 from groq import AsyncGroq
+from huggingface_hub import InferenceClient
 from PIL import Image
 import io, json, base64, os, asyncio, httpx
 
@@ -73,7 +74,7 @@ async def identify_with_groq(img_bytes: bytes, content_type: str) -> dict:
     mime = content_type or "image/jpeg"
     prompt = 'Look at this image and identify the primary construction or building material. If none visible, reply: {"material": "None", "confidence": 0.0}. Otherwise reply ONLY with JSON. Example: {"material": "Fired Brick", "confidence": 0.91}'
     resp = await groq_client.chat.completions.create(
-        model="llama-3.2-11b-vision-preview",
+        model="meta-llama/llama-4-scout-17b-16e-instruct",
         messages=[{"role": "user", "content": [
             {"type": "text", "text": prompt},
             {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}}
@@ -104,33 +105,35 @@ async def get_eco_data_groq(material_name: str) -> dict:
 
 # ── HuggingFace Minc-23 Fast Classifier ──────────────────────────────────────
 HF_TOKEN = os.environ.get("HF_TOKEN")
-HF_MODEL_URL = "https://api-inference.huggingface.co/models/prithivMLmods/Minc-Materials-23"
+_hf_client = InferenceClient(api_key=HF_TOKEN) if HF_TOKEN else None
 
 # Map Minc-23 labels → MATERIALS dict keys
 MINC_TO_MATERIAL = {
     "brick": "Brick", "ceramic": "Ceramic Tile", "glass": "Glass",
-    "metal": "Steel", "stone": "Granite", "polished_stone": "Marble",
-    "tile": "Tile", "wood": "Wood", "plastic": "PVC",
-    "painted": "Paint", "mirror": "Glass", "wallpaper": "Paint",
+    "metal": "Steel", "stone": "Granite", "polishedstone": "Marble",
+    "polished_stone": "Marble", "tile": "Tile", "wood": "Wood",
+    "plastic": "PVC", "painted": "Paint", "mirror": "Glass", "wallpaper": "Paint",
 }
 
 async def classify_with_hf(img_bytes: bytes):
     """Returns (material_key, confidence) or (None, 0.0) on miss/failure."""
-    if not HF_TOKEN:
+    if not _hf_client:
         return None, 0.0
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
     try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            resp = await client.post(HF_MODEL_URL, headers=headers, content=img_bytes)
-        if resp.status_code != 200:
-            print(f"HF status {resp.status_code} — skipping fast path")
-            return None, 0.0
-        results = resp.json()
-        if not isinstance(results, list) or not results:
+        loop = asyncio.get_event_loop()
+        results = await asyncio.wait_for(
+            loop.run_in_executor(None, lambda: _hf_client.image_classification(
+                image=io.BytesIO(img_bytes),
+                model="prithivMLmods/Minc-Materials-23"
+            )),
+            timeout=8.0
+        )
+        if not results:
             return None, 0.0
         top = results[0]
-        label = top.get("label", "").lower().replace(" ", "_")
-        score = float(top.get("score", 0.0))
+        label = top.label.lower().replace(" ", "_")
+        score = float(top.score)
+        print(f"HF Minc-23: {label} ({score:.0%})")
         return MINC_TO_MATERIAL.get(label), score
     except Exception as e:
         print(f"HF classifier error: {e}")
@@ -139,19 +142,19 @@ async def classify_with_hf(img_bytes: bytes):
 @app.on_event("startup")
 async def warmup_hf():
     """Ping HuggingFace on startup so model is warm for real requests."""
-    if not HF_TOKEN:
+    if not _hf_client:
         return
     print("Warming up HuggingFace Minc-23...")
     try:
-        # 1x1 white JPEG
         buf = io.BytesIO()
         from PIL import Image as _Img
         _Img.new("RGB", (10, 10), color=(200, 200, 200)).save(buf, format="JPEG")
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.post(HF_MODEL_URL,
-                headers={"Authorization": f"Bearer {HF_TOKEN}"},
-                content=buf.getvalue())
-        print(f"HF warmup done — status {r.status_code}")
+        buf.seek(0)
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, lambda: _hf_client.image_classification(
+            image=buf, model="prithivMLmods/Minc-Materials-23"
+        ))
+        print("HF warmup done ✅")
     except Exception as e:
         print(f"HF warmup error (non-fatal): {e}")
 
