@@ -437,7 +437,7 @@ async def estimate_project(data: dict):
         {"name": "Bricks",  "key": "Brick",        "ratio": 45,   "unit": "nos"},
         {"name": "Steel",   "key": "Steel Rebar",  "ratio": 3.5,  "unit": "kg"},
         {"name": "Sand",    "key": "Sand",          "ratio": 0.03, "unit": "truckload"},
-        {"name": "Crush",   "key": "Crush",         "ratio": 0.02, "unit": "truckload"},
+        {"name": "Crush",   "key": "Crush",         "ratio": 1.2,  "unit": "cubic ft"},
         {"name": "Tiles",   "key": "Tile",          "ratio": 1.1,  "unit": "sqft"},
     ]
     items = []

@@ -402,8 +402,13 @@ const MarketScreen = () => {
                 method: "POST", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ type: estType, size: parseInt(estSize), floors: parseInt(estFloors) })
             });
-            setEstimate(await r.json());
-        } catch(e) { alert("Estimate failed. Is backend running?"); }
+            const data = await r.json();
+            if (!r.ok || !data.items) {
+                alert("Estimate failed: " + (data.detail || "Backend error. Try again."));
+                return;
+            }
+            setEstimate(data);
+        } catch(e) { alert("Could not reach backend. Is it awake? Try again in 30s."); }
         finally { setEstimating(false); }
     };
 
@@ -516,11 +521,12 @@ const MarketScreen = () => {
                         </div>
                         <button onClick={runEstimate} disabled={estimating || !estSize}
                             className="w-full py-3 bg-primary text-white rounded-xl font-label-bold flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95 transition-all">
-                            {estimating ? <><span className="material-symbols-outlined text-sm" style={{animation:'spin 1s linear infinite'}}>progress_activity</span>Calculating...</>
-                                        : <><span className="material-symbols-outlined text-sm">calculate</span>Calculate Material Cost</>}
+                            {estimating
+                                ? <><span className="material-symbols-outlined text-sm animate-spin">progress_activity</span>Calculating...</>
+                                : <><span className="material-symbols-outlined text-sm">calculate</span>Calculate Material Cost</>}
                         </button>
 
-                        {estimate && (
+                        {estimate?.items && (
                             <div className="space-y-3 pt-1">
                                 <div className="grid grid-cols-2 gap-2">
                                     <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-center">
