@@ -291,10 +291,7 @@ Provide the response EXACTLY in the following JSON format (do not include markdo
 Ensure the prices and predictions are as accurate as possible based on today's market rates in Pakistan."""
 
     try:
-        response = await asyncio.wait_for(
-            model.generate_content_async(prompt, tools='google_search'),
-            timeout=30.0
-        )
+        response = await generate_with_rotation(prompt, timeout=30.0)
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("```")[1]
