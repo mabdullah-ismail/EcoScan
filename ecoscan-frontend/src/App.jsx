@@ -377,161 +377,228 @@ const AnalysisScreen = () => {
 
 const MarketScreen = () => {
     const [marketData, setMarketData] = useState(null);
-    const [showNotifications, setShowNotifications] = useState(false);
+    const [suppliers, setSuppliers] = useState([]);
+    const [showNotif, setShowNotif] = useState(false);
+    const [estType, setEstType] = useState('house');
+    const [estSize, setEstSize] = useState('');
+    const [estFloors, setEstFloors] = useState('1');
+    const [estimate, setEstimate] = useState(null);
+    const [estimating, setEstimating] = useState(false);
+
+    const fmt = (n) => '₨' + Number(n).toLocaleString('en-PK');
 
     useEffect(() => {
         fetch("https://ecoscan-backend-rxmp.onrender.com/market-data")
-            .then(res => res.json())
-            .then(data => setMarketData(data))
-            .catch(err => console.error(err));
+            .then(r => r.json()).then(setMarketData).catch(console.error);
+        fetch("https://ecoscan-backend-rxmp.onrender.com/suppliers")
+            .then(r => r.json()).then(d => setSuppliers(d.suppliers || [])).catch(console.error);
     }, []);
+
+    const runEstimate = async () => {
+        if (!estSize) return;
+        setEstimating(true); setEstimate(null);
+        try {
+            const r = await fetch("https://ecoscan-backend-rxmp.onrender.com/estimate", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ type: estType, size: parseInt(estSize), floors: parseInt(estFloors) })
+            });
+            setEstimate(await r.json());
+        } catch(e) { alert("Estimate failed. Is backend running?"); }
+        finally { setEstimating(false); }
+    };
 
     const downloadPDF = () => {
         if (!marketData) return;
         const doc = new jsPDF();
-        doc.setFontSize(20);
-        doc.text("EcoScan Planning Report", 20, 20);
-        doc.setFontSize(12);
-        doc.text("Date: " + new Date().toLocaleDateString(), 20, 30);
-        
+        doc.setFontSize(20); doc.text("EcoScan Planning Report", 20, 20);
+        doc.setFontSize(12); doc.text("Date: " + new Date().toLocaleDateString(), 20, 30);
         doc.text("Market Prediction:", 20, 45);
-        const splitText = doc.splitTextToSize(marketData.prediction.text, 170);
-        doc.text(splitText, 20, 52);
-        
-        doc.text("Current Rates:", 20, 75);
-        let y = 82;
-        marketData.items.forEach(item => {
-            doc.text(`- ${item.name}: ${item.price} (${item.trend})`, 20, y);
-            y += 10;
-        });
-        
+        const split = doc.splitTextToSize(marketData.prediction.text, 170);
+        doc.text(split, 20, 52);
+        doc.text("Current Rates:", 20, 75); let y = 82;
+        marketData.items.forEach(item => { doc.text(`- ${item.name}: ${item.price} (${item.trend})`, 20, y); y += 10; });
+        if (estimate) {
+            doc.text(`Project Estimate (${estSize} sqft):`, 20, y + 5);
+            doc.text(`Standard: ${fmt(estimate.total_cost)} | Eco: ${fmt(estimate.eco_total)} | Save: ${estimate.savings_pct}%`, 20, y + 15);
+        }
         doc.save("ecoscan_planning_report.pdf");
     };
 
-    if (!marketData) {
-        return (
-            <div className="bg-surface min-h-screen flex items-center justify-center">
-                <p className="font-label-bold text-secondary animate-pulse">Loading Live Market Data...</p>
-                <BottomNavBar />
-            </div>
-        );
-    }
+    if (!marketData) return (
+        <div className="bg-surface min-h-screen flex flex-col items-center justify-center gap-3">
+            <span className="material-symbols-outlined text-4xl text-primary animate-pulse">trending_up</span>
+            <p className="font-label-bold text-secondary animate-pulse">Loading Live Market Data...</p>
+            <BottomNavBar />
+        </div>
+    );
 
     return (
         <div className="bg-surface min-h-screen pb-24">
-            <TopAppBar rightIcons={[
-                { icon: 'notifications', onClick: () => setShowNotifications(!showNotifications) }
-            ]} />
-            
-            {showNotifications && (
-                <div className="fixed top-16 right-4 w-72 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden">
-                    <div className="bg-primary/10 px-4 py-3 border-b border-slate-100 flex justify-between items-center">
-                        <span className="font-label-bold text-primary">Alerts</span>
+            <TopAppBar rightIcons={[{ icon:'notifications', onClick:() => setShowNotif(!showNotif) }]} />
+
+            {showNotif && (
+                <div className="fixed top-16 right-4 w-72 bg-white rounded-xl shadow-xl border border-slate-200 z-50">
+                    <div className="bg-primary/10 px-4 py-3 border-b flex justify-between items-center">
+                        <span className="font-label-bold text-primary">Price Alerts</span>
                         <span className="bg-primary text-white text-[10px] px-2 py-0.5 rounded-full">2 New</span>
                     </div>
-                    <div className="p-4 space-y-4">
-                        <div>
-                            <p className="font-label-sm font-bold text-slate-800">Cement Price Drop</p>
-                            <p className="text-xs text-slate-500 mt-1">Expected 2.5% decrease next week.</p>
-                        </div>
-                        <div>
-                            <p className="font-label-sm font-bold text-slate-800">Bulk Steel Supply</p>
-                            <p className="text-xs text-slate-500 mt-1">Raiwind kilns opened today.</p>
-                        </div>
+                    <div className="p-4 space-y-3">
+                        <div><p className="font-label-sm font-bold text-slate-800">Cement Price Drop</p><p className="text-xs text-slate-500">Expected 2.5% decrease next week.</p></div>
+                        <div><p className="font-label-sm font-bold text-slate-800">Bulk Steel Supply</p><p className="text-xs text-slate-500">Raiwind kilns opened today.</p></div>
                     </div>
                 </div>
             )}
 
-            <main className="max-w-7xl mx-auto px-container-margin py-stack-md space-y-stack-lg pt-20">
-                <section className="flex flex-col md:flex-row md:items-center justify-between gap-stack-sm">
+            <main className="max-w-2xl mx-auto px-4 pt-20 pb-4 space-y-5">
+
+                {/* Header */}
+                <section className="flex items-center justify-between">
                     <div>
                         <h1 className="font-headline-lg text-on-surface">Lahore Material Trends</h1>
-                        <p className="font-body-md text-on-surface-variant">Real-time construction cost index for Punjab region.</p>
+                        <p className="text-xs text-on-surface-variant">Live construction cost index · Punjab</p>
                     </div>
-                    <div className="flex items-center gap-unit bg-primary-container/10 border border-primary-container/20 px-stack-md py-stack-sm rounded-full w-fit">
-                        <span className="relative flex h-3 w-3">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-3 w-3 bg-primary"></span>
-                        </span>
-                        <span className="font-label-bold text-primary ml-2">Market Status: {marketData.status}</span>
+                    <div className="flex items-center gap-2 bg-primary/10 border border-primary/20 px-3 py-1.5 rounded-full">
+                        <span className="relative flex h-2 w-2"><span className="animate-ping absolute h-full w-full rounded-full bg-primary opacity-75"></span><span className="relative rounded-full h-2 w-2 bg-primary"></span></span>
+                        <span className="font-label-bold text-primary text-xs">{marketData.status}</span>
                     </div>
                 </section>
 
-                <section className="grid grid-cols-1 md:grid-cols-3 gap-gutter">
-                    {marketData.items.map((item, idx) => (
-                        <div key={idx} className="bg-surface-container-lowest border border-outline-variant rounded-xl p-stack-md hover:border-primary-container transition-colors">
-                            <div className="flex justify-between items-start mb-stack-md">
-                                <div>
-                                    <p className="font-label-sm text-on-surface-variant uppercase tracking-wider">{item.name}</p>
-                                    <h3 className="font-display-xl text-on-surface">{item.price}</h3>
-                                </div>
-                                <div className={`px-stack-sm py-1 rounded-full flex items-center gap-1 ${item.neutral ? 'bg-surface-variant' : (item.up ? 'bg-error-container text-on-error-container' : 'bg-primary/10 text-primary')}`}>
-                                    <span className="material-symbols-outlined text-sm">{item.icon}</span>
-                                    <span className="font-label-bold text-label-sm">{item.trend}</span>
-                                </div>
-                            </div>
-                            <div className="h-24 w-full flex items-end gap-1 px-1">
-                                {[40, 55, 45, 60, 75, 65, 85, 100].map((h, i) => (
-                                    <div key={i} className={`w-full ${i === 7 ? 'bg-primary' : 'bg-primary/20'} rounded-t-sm`} style={{height: `${h}%`}}></div>
-                                ))}
+                {/* Price Cards */}
+                <section className="grid grid-cols-3 gap-2">
+                    {marketData.items.map((item, i) => (
+                        <div key={i} className="bg-white border border-slate-200 rounded-xl p-3">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{item.name.split(' ')[0]}</p>
+                            <p className="font-headline-md text-on-surface text-base">{item.price}</p>
+                            <div className={`mt-1 flex items-center gap-0.5 text-[10px] font-bold ${item.neutral ? 'text-slate-400' : item.up ? 'text-red-500' : 'text-emerald-600'}`}>
+                                <span className="material-symbols-outlined text-sm">{item.icon}</span>{item.trend}
                             </div>
                         </div>
                     ))}
                 </section>
 
-                <section className="grid grid-cols-1 lg:grid-cols-2 gap-gutter">
-                    <div className="bg-tertiary-container text-on-tertiary-container rounded-2xl p-stack-lg relative overflow-hidden flex flex-col justify-between min-h-[320px]">
-                        <div className="relative z-10">
-                            <h2 className="font-headline-lg mb-unit">Weekly Prediction</h2>
-                            <p className="font-body-md opacity-90 max-w-md">{marketData.prediction.text}</p>
-                        </div>
-                        <div className="relative z-10 space-y-stack-md mt-stack-lg">
-                            <div className="bg-white/10 backdrop-blur-md rounded-xl p-stack-md border border-white/20">
-                                <div className="flex justify-between items-center mb-unit">
-                                    <span className="font-label-bold">Confidence Score</span>
-                                    <span className="font-label-bold">{marketData.prediction.confidence}%</span>
-                                </div>
-                                <div className="h-2 bg-white/20 rounded-full overflow-hidden">
-                                    <div className="h-full bg-white" style={{width: `${marketData.prediction.confidence}%`}}></div>
-                                </div>
-                            </div>
-                            <button onClick={downloadPDF} className="w-full bg-white text-tertiary font-label-bold py-4 rounded-xl shadow-lg active:scale-95 transition-transform">
-                                Download Planning Report (PDF)
-                            </button>
-                        </div>
-                        <div className="absolute -right-16 -top-16 opacity-20">
-                            <span className="material-symbols-outlined text-[300px]">analytics</span>
-                        </div>
-                    </div>
-
-                    <div className="space-y-gutter">
-                        <div className="bg-surface-container-high border border-outline-variant rounded-2xl p-stack-md flex items-center gap-stack-md">
-                            <div className="bg-primary/10 p-3 rounded-full text-primary">
-                                <span className="material-symbols-outlined">location_on</span>
-                            </div>
-                            <div>
-                                <h4 className="font-label-bold text-on-surface">{marketData.hotspot.title}</h4>
-                                <p className="font-body-md text-label-sm text-on-surface-variant">{marketData.hotspot.desc}</p>
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-gutter">
-                            <div className="bg-surface-container-lowest border border-outline-variant rounded-2xl p-stack-md text-center">
-                                <p className="font-label-sm text-on-surface-variant mb-unit">Sand (Truckload)</p>
-                                <p className="font-headline-md text-on-surface">{marketData.hotspot.sand.price}</p>
-                                <span className={`text-[10px] font-bold ${marketData.hotspot.sand.up ? 'text-error' : 'text-primary'}`}>{marketData.hotspot.sand.trend}</span>
-                            </div>
-                            <div className="bg-surface-container-lowest border border-outline-variant rounded-2xl p-stack-md text-center">
-                                <p className="font-label-sm text-on-surface-variant mb-unit">Crush (Cubic Ft)</p>
-                                <p className="font-headline-md text-on-surface">{marketData.hotspot.crush.price}</p>
-                                <span className={`text-[10px] font-bold ${marketData.hotspot.crush.up ? 'text-error' : 'text-primary'}`}>{marketData.hotspot.crush.trend}</span>
-                            </div>
-                        </div>
+                {/* Weekly Prediction */}
+                <section className="bg-tertiary-container rounded-2xl p-4 relative overflow-hidden">
+                    <div className="absolute -right-6 -top-6 opacity-10"><span className="material-symbols-outlined text-[120px]">analytics</span></div>
+                    <p className="font-label-bold text-on-tertiary-container mb-1">📈 Weekly Prediction</p>
+                    <p className="text-sm text-on-tertiary-container opacity-90 mb-3">{marketData.prediction.text}</p>
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="flex-1 h-1.5 bg-white/20 rounded-full"><div className="h-full bg-white rounded-full" style={{width:`${marketData.prediction.confidence}%`}}></div></div>
+                        <span className="text-xs font-bold text-on-tertiary-container">{marketData.prediction.confidence}%</span>
+                        <button onClick={downloadPDF} className="bg-white/20 text-on-tertiary-container text-xs font-bold px-3 py-1.5 rounded-lg border border-white/30 active:scale-95 transition-transform">PDF ↓</button>
                     </div>
                 </section>
+
+                {/* ── PROJECT COST ESTIMATOR ── */}
+                <section className="bg-white border-2 border-primary/30 rounded-2xl overflow-hidden shadow-sm">
+                    <div className="bg-primary px-4 py-3 flex items-center gap-2">
+                        <span className="material-symbols-outlined text-white text-xl">calculate</span>
+                        <h2 className="font-headline-md text-white flex-1">Project Cost Estimator</h2>
+                        <span className="bg-white/20 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">BETA</span>
+                    </div>
+                    <div className="p-4 space-y-3">
+                        <div className="grid grid-cols-3 gap-2">
+                            {[['house','🏠 House'],['villa','🏡 Villa'],['commercial','🏢 Shop']].map(([t,l]) => (
+                                <button key={t} onClick={() => setEstType(t)} className={`py-2 rounded-xl text-xs font-bold border-2 transition-all ${estType===t ? 'border-primary bg-primary/10 text-primary' : 'border-slate-200 text-slate-400 hover:border-slate-300'}`}>{l}</button>
+                            ))}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Area (sqft)</label>
+                                <input type="number" value={estSize} onChange={e => setEstSize(e.target.value)} placeholder="e.g. 1500"
+                                    className="w-full mt-1 border-2 border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-primary outline-none transition-colors" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Floors</label>
+                                <select value={estFloors} onChange={e => setEstFloors(e.target.value)} className="w-full mt-1 border-2 border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-primary outline-none bg-white">
+                                    {[1,2,3,4,5].map(f => <option key={f} value={f}>{f} Floor{f>1?'s':''}</option>)}
+                                </select>
+                            </div>
+                        </div>
+                        <button onClick={runEstimate} disabled={estimating || !estSize}
+                            className="w-full py-3 bg-primary text-white rounded-xl font-label-bold flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95 transition-all">
+                            {estimating ? <><span className="material-symbols-outlined text-sm" style={{animation:'spin 1s linear infinite'}}>progress_activity</span>Calculating...</>
+                                        : <><span className="material-symbols-outlined text-sm">calculate</span>Calculate Material Cost</>}
+                        </button>
+
+                        {estimate && (
+                            <div className="space-y-3 pt-1">
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-center">
+                                        <p className="text-[10px] font-bold text-red-400 uppercase mb-1">Standard Cost</p>
+                                        <p className="text-lg font-black text-red-600">{fmt(estimate.total_cost)}</p>
+                                    </div>
+                                    <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-center">
+                                        <p className="text-[10px] font-bold text-emerald-500 uppercase mb-1">With Eco Materials</p>
+                                        <p className="text-lg font-black text-emerald-600">{fmt(estimate.eco_total)}</p>
+                                    </div>
+                                </div>
+                                <div className="bg-primary/5 border border-primary/20 rounded-xl p-3 flex items-center justify-between">
+                                    <div><p className="text-xs font-bold text-primary">💰 Total Savings</p><p className="text-xl font-black text-primary">{fmt(estimate.savings)}</p></div>
+                                    <div className="text-right"><p className="text-3xl font-black text-primary">{estimate.savings_pct}%</p><p className="text-[10px] text-slate-400">cheaper with eco</p></div>
+                                </div>
+                                <div className="space-y-1">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Material Breakdown</p>
+                                    {estimate.items.map((item, i) => (
+                                        <div key={i} className="flex items-center justify-between py-1.5 border-b border-slate-100 last:border-0">
+                                            <div><p className="text-sm font-bold text-on-surface">{item.name}</p><p className="text-[10px] text-slate-400">{item.qty.toLocaleString()} {item.unit} → {item.alt}</p></div>
+                                            <div className="text-right"><p className="text-xs line-through text-slate-400">{fmt(item.total)}</p><p className="text-sm font-bold text-emerald-600">{fmt(item.eco_total)}</p></div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </section>
+
+                {/* ── ECO SUPPLIER MARKETPLACE ── */}
+                <section>
+                    <div className="flex items-center justify-between mb-3">
+                        <div><h2 className="font-headline-md text-on-surface">Eco Supplier Network</h2><p className="text-xs text-slate-400">Verified sustainable suppliers · Lahore</p></div>
+                        <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-1 rounded-full">{suppliers.length} Verified</span>
+                    </div>
+                    <div className="space-y-2">
+                        {suppliers.map((s, i) => (
+                            <div key={i} className="bg-white border border-slate-200 rounded-xl p-3 flex items-center gap-3 hover:border-primary/30 transition-colors">
+                                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                                    <span className="material-symbols-outlined text-primary text-lg">factory</span>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-1.5"><p className="font-label-bold text-on-surface text-sm truncate">{s.name}</p><span className="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-bold flex-shrink-0">✓ ECO</span></div>
+                                    <p className="text-[10px] text-slate-400">{s.area}</p>
+                                    <p className="text-[10px] text-primary font-bold truncate">{s.specialty}</p>
+                                </div>
+                                <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                                    <div className="flex items-center gap-0.5"><span className="material-symbols-outlined text-amber-400 text-sm" style={{fontVariationSettings:"'FILL' 1"}}>star</span><span className="text-xs font-bold">{s.rating}</span></div>
+                                    <button onClick={() => window.open(`https://wa.me/${s.phone}?text=${encodeURIComponent(`Hi, I found you on EcoScan. I need ${s.specialty}.`)}`, '_blank')}
+                                        className="flex items-center gap-1 bg-[#25D366] text-white px-2 py-1 rounded-lg text-[10px] font-bold active:scale-95 transition-transform">
+                                        <span className="material-symbols-outlined text-sm">chat</span>Chat
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </section>
+
+                {/* ── BECOME A SUPPLIER CTA ── */}
+                <section className="bg-gradient-to-br from-[#5E7D6B] to-emerald-800 rounded-2xl p-5 text-white relative overflow-hidden">
+                    <div className="absolute -right-4 -bottom-4 opacity-10"><span className="material-symbols-outlined text-[100px]">storefront</span></div>
+                    <div className="relative z-10">
+                        <span className="bg-white/20 text-white text-[10px] font-bold px-2 py-0.5 rounded-full mb-2 inline-block">FREE DURING BETA</span>
+                        <h3 className="font-headline-md mb-1">Sell on EcoScan Marketplace</h3>
+                        <p className="text-sm opacity-80 mb-4">Join verified suppliers reaching thousands of contractors across Punjab. Zero commission during launch.</p>
+                        <button onClick={() => window.open('https://wa.me/923101766224?text=' + encodeURIComponent('Hi EcoScan, I want to list my eco-material business on your marketplace.'), '_blank')}
+                            className="flex items-center gap-2 bg-white text-[#5E7D6B] font-label-bold px-4 py-2.5 rounded-xl active:scale-95 transition-transform shadow-lg text-sm">
+                            <span className="material-symbols-outlined text-sm">add_business</span>Register as Supplier
+                        </button>
+                    </div>
+                </section>
+
             </main>
+            <BottomNavBar />
         </div>
     );
 };
+
 
 const HistoryScreen = () => {
     const navigate = useNavigate();

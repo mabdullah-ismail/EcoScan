@@ -423,3 +423,52 @@ async def list_models():
         return {"available_models": models}
     except Exception as e:
         return {"error": str(e)}
+
+@app.post("/estimate")
+async def estimate_project(data: dict):
+    """Calculate material costs for a construction project using Lahore market rates."""
+    size_sqft = max(int(data.get("size", 1000)), 100)
+    floors    = max(int(data.get("floors", 1)), 1)
+    total     = size_sqft * floors
+
+    # Standard Lahore construction ratios per sqft (all floors combined)
+    raw = [
+        {"name": "Cement",  "key": "Cement",      "ratio": 0.8,  "unit": "bags"},
+        {"name": "Bricks",  "key": "Brick",        "ratio": 45,   "unit": "nos"},
+        {"name": "Steel",   "key": "Steel Rebar",  "ratio": 3.5,  "unit": "kg"},
+        {"name": "Sand",    "key": "Sand",          "ratio": 0.03, "unit": "truckload"},
+        {"name": "Crush",   "key": "Crush",         "ratio": 0.02, "unit": "truckload"},
+        {"name": "Tiles",   "key": "Tile",          "ratio": 1.1,  "unit": "sqft"},
+    ]
+    items = []
+    for r in raw:
+        m    = MATERIALS.get(r["key"], {})
+        qty  = round(total * r["ratio"])
+        cost = qty * m.get("cost", 500)
+        sav  = max(m.get("cost_saving", 15), 0)
+        items.append({
+            "name": r["name"], "qty": qty, "unit": r["unit"],
+            "price_per_unit": m.get("cost", 500),
+            "total": cost, "eco_total": round(cost * (1 - sav / 100)),
+            "alt": m.get("alt", "Eco alternative"), "saving_pct": sav,
+        })
+
+    total_cost = sum(i["total"] for i in items)
+    eco_total  = sum(i["eco_total"] for i in items)
+    savings    = total_cost - eco_total
+    return {
+        "items": items, "total_cost": total_cost, "eco_total": eco_total,
+        "savings": savings,
+        "savings_pct": round(savings / total_cost * 100) if total_cost else 0,
+    }
+
+@app.get("/suppliers")
+async def get_suppliers():
+    """Return verified eco-material suppliers in Lahore."""
+    return {"suppliers": [
+        {"name": "Indus Eco-Materials Co.",  "area": "Raiwind Rd, Lahore",      "specialty": "AAC Blocks & Fly Ash Bricks",    "rating": 4.9, "phone": "923101766224"},
+        {"name": "GreenBuild Pakistan",       "area": "Multan Rd, Lahore",        "specialty": "Bamboo & WPC Composite Panels",  "rating": 4.7, "phone": "923001234567"},
+        {"name": "RecycleCrete Pvt Ltd",      "area": "Sheikhupura Rd, Lahore",   "specialty": "Recycled Concrete Aggregate",    "rating": 4.8, "phone": "923211234567"},
+        {"name": "EcoSteel Solutions",        "area": "Sundar Industrial Estate",  "specialty": "Recycled Steel Rebar & GFRP",   "rating": 4.6, "phone": "923451234567"},
+        {"name": "Punjab Green Suppliers",    "area": "Gulberg III, Lahore",       "specialty": "Low-VOC Paints & PPRC Pipes",   "rating": 4.5, "phone": "923321234567"},
+    ]}
