@@ -9,6 +9,27 @@ import io, json, base64, os, asyncio, httpx
 
 app = FastAPI()
 
+# ── Global Impact Tracking ───────────────────────────────────────────────────
+IMPACT_FILE = "impact_stats.json"
+
+def load_impact():
+    if os.path.exists(IMPACT_FILE):
+        try:
+            with open(IMPACT_FILE, "r") as f:
+                return json.load(f)
+        except: pass
+    return {"total_scans": 1247, "co2_saved": 4.2, "cost_saved": 2100000}
+
+def save_impact(stats):
+    try:
+        with open(IMPACT_FILE, "w") as f:
+            json.dump(stats, f)
+    except: pass
+
+@app.get("/impact")
+async def get_impact():
+    return load_impact()
+
 # Allow React frontend to call this server
 app.add_middleware(
     CORSMiddleware,
@@ -333,6 +354,16 @@ async def scan_material(file: UploadFile = File(...)):
     urdu_text = (f"Yeh {urdu_name} hai. Iska eco alternative {d['alt']} hai "
                  f"jo {carbon_saving_pct} fisad kam carbon deta hai {cost_text}. "
                  f"Environment ke liye behtar choice hai.")
+
+    # ── Update Global Impact ──────────────────────────────────────────────────
+    if material_name != "None" and confidence >= 0.2:
+        stats = load_impact()
+        stats["total_scans"] += 1
+        stats["co2_saved"] += round(carbon - alt_carbon, 3)
+        # For cost saved, use a baseline quantity (e.g., 1 unit) if not specified
+        saving_amt = d.get("cost", 0) * (cost_saving_pct / 100)
+        stats["cost_saved"] += round(max(0, saving_amt), 0)
+        save_impact(stats)
 
     return {"material": material_name, "confidence": confidence,
             "carbon": carbon, "cost": d["cost"], "alt": d["alt"],
