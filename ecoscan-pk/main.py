@@ -184,6 +184,12 @@ MATERIALS = {
     # ── Sand & Aggregate ──────────────────────────────────────────────────────
     "River Sand":          {"carbon":0.05, "cost":38000,"alt":"Crushed Stone Sand (Washed)", "alt_carbon":0.02, "saving":60, "cost_saving":10, "urdu":"darya ki ret"},
     "Sand":                {"carbon":0.05, "cost":38000,"alt":"Crushed Stone Sand (Washed)", "alt_carbon":0.02, "saving":60, "cost_saving":10, "urdu":"ret"},
+    "Crushed Stone":       {"carbon":0.04, "cost":125,  "alt":"Recycled Concrete Aggregate", "alt_carbon":0.01, "saving":75, "cost_saving":20, "urdu":"bajri / crush"},
+    "Stone":               {"carbon":0.04, "cost":125,  "alt":"Recycled Concrete Aggregate", "alt_carbon":0.01, "saving":75, "cost_saving":20, "urdu":"patthar"},
+    "Gravel":              {"carbon":0.04, "cost":125,  "alt":"Recycled Concrete Aggregate", "alt_carbon":0.01, "saving":75, "cost_saving":20, "urdu":"bajri"},
+    "Aggregate":           {"carbon":0.04, "cost":125,  "alt":"Recycled Concrete Aggregate", "alt_carbon":0.01, "saving":75, "cost_saving":20, "urdu":"aggregaat"},
+    "Crush":               {"carbon":0.04, "cost":125,  "alt":"Recycled Concrete Aggregate", "alt_carbon":0.01, "saving":75, "cost_saving":20, "urdu":"crush"},
+    "Bajri":               {"carbon":0.04, "cost":125,  "alt":"Recycled Concrete Aggregate", "alt_carbon":0.01, "saving":75, "cost_saving":20, "urdu":"bajri"},
 
     # ── Flooring ──────────────────────────────────────────────────────────────
     "Marble":              {"carbon":0.45, "cost":220,  "alt":"Terrazzo (Chips Flooring)",   "alt_carbon":0.18, "saving":60, "cost_saving":35, "urdu":"marmar"},
