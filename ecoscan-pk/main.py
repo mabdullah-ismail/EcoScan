@@ -2,8 +2,9 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import google.generativeai as genai
 from google.cloud import texttospeech
+from groq import AsyncGroq
 from PIL import Image
-import io, json, base64, os, asyncio
+import io, json, base64, os, asyncio, httpx
 
 app = FastAPI()
 
@@ -59,6 +60,100 @@ async def generate_with_rotation(prompt_parts, timeout=30.0):
             raise  # re-raise non-quota errors immediately
     raise last_error  # all keys exhausted
 
+
+# ── Groq Client (LLaMA Vision) ───────────────────────────────────────────────
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+groq_client = AsyncGroq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+
+async def identify_with_groq(img_bytes: bytes, content_type: str) -> dict:
+    """Use Groq LLaMA-3.2 Vision to identify a construction material."""
+    if not groq_client:
+        raise RuntimeError("Groq not configured")
+    b64 = base64.b64encode(img_bytes).decode("utf-8")
+    mime = content_type or "image/jpeg"
+    prompt = 'Look at this image and identify the primary construction or building material. If none visible, reply: {"material": "None", "confidence": 0.0}. Otherwise reply ONLY with JSON. Example: {"material": "Fired Brick", "confidence": 0.91}'
+    resp = await groq_client.chat.completions.create(
+        model="llama-3.2-11b-vision-preview",
+        messages=[{"role": "user", "content": [
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}}
+        ]}],
+        max_tokens=120, temperature=0.1
+    )
+    text = resp.choices[0].message.content.strip()
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"): text = text[4:]
+    return json.loads(text.strip())
+
+async def get_eco_data_groq(material_name: str) -> dict:
+    """Use Groq text model to get eco data for an unknown material."""
+    if not groq_client:
+        raise RuntimeError("Groq not configured")
+    prompt = f'For construction material "{material_name}", provide eco-friendly alternative. Do NOT suggest "Recycled {material_name}". Reply ONLY with JSON: {{"cost": 500, "carbon": 0.4, "alt": "Hempcrete", "alt_carbon": 0.08, "saving": 80, "cost_saving": 20, "urdu": "urdu name"}}'
+    resp = await groq_client.chat.completions.create(
+        model="llama3-8b-8192",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=200, temperature=0.1
+    )
+    text = resp.choices[0].message.content.strip()
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"): text = text[4:]
+    return json.loads(text.strip())
+
+# ── HuggingFace Minc-23 Fast Classifier ──────────────────────────────────────
+HF_TOKEN = os.environ.get("HF_TOKEN")
+HF_MODEL_URL = "https://api-inference.huggingface.co/models/prithivMLmods/Minc-Materials-23"
+
+# Map Minc-23 labels → MATERIALS dict keys
+MINC_TO_MATERIAL = {
+    "brick": "Brick", "ceramic": "Ceramic Tile", "glass": "Glass",
+    "metal": "Steel", "stone": "Granite", "polished_stone": "Marble",
+    "tile": "Tile", "wood": "Wood", "plastic": "PVC",
+    "painted": "Paint", "mirror": "Glass", "wallpaper": "Paint",
+}
+
+async def classify_with_hf(img_bytes: bytes):
+    """Returns (material_key, confidence) or (None, 0.0) on miss/failure."""
+    if not HF_TOKEN:
+        return None, 0.0
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.post(HF_MODEL_URL, headers=headers, content=img_bytes)
+        if resp.status_code != 200:
+            print(f"HF status {resp.status_code} — skipping fast path")
+            return None, 0.0
+        results = resp.json()
+        if not isinstance(results, list) or not results:
+            return None, 0.0
+        top = results[0]
+        label = top.get("label", "").lower().replace(" ", "_")
+        score = float(top.get("score", 0.0))
+        return MINC_TO_MATERIAL.get(label), score
+    except Exception as e:
+        print(f"HF classifier error: {e}")
+        return None, 0.0
+
+@app.on_event("startup")
+async def warmup_hf():
+    """Ping HuggingFace on startup so model is warm for real requests."""
+    if not HF_TOKEN:
+        return
+    print("Warming up HuggingFace Minc-23...")
+    try:
+        # 1x1 white JPEG
+        buf = io.BytesIO()
+        from PIL import Image as _Img
+        _Img.new("RGB", (10, 10), color=(200, 200, 200)).save(buf, format="JPEG")
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.post(HF_MODEL_URL,
+                headers={"Authorization": f"Bearer {HF_TOKEN}"},
+                content=buf.getvalue())
+        print(f"HF warmup done — status {r.status_code}")
+    except Exception as e:
+        print(f"HF warmup error (non-fatal): {e}")
 
 # Load Google Cloud Credentials using a relative path that works anywhere
 cred_path = os.path.join(os.path.dirname(__file__), "..", "ecoscan-494416-31a68658518d.json")
@@ -139,115 +234,102 @@ def health():
 @app.post("/scan")
 async def scan_material(file: UploadFile = File(...)):
     img_bytes = await file.read()
-
-    # Detect MIME type from uploaded file
     content_type = file.content_type or "image/jpeg"
 
-    # Pass image as inline bytes dict (required for Gemini 2.x+)
-    image_part = {
-        "inline_data": {
-            "mime_type": content_type,
-            "data": base64.b64encode(img_bytes).decode("utf-8")
-        }
-    }
-
-    # ── STAGE 1: Ask Gemini ONLY for the material name + confidence ──────────
-    # This is a lightweight prompt that returns fast for all scans.
-    id_prompt = """Look at this image and identify the primary construction or building material.
-If no clear construction/building material is visible, reply: {"material": "None", "confidence": 0.0}
-Otherwise reply ONLY with JSON, no extra text. Example: {"material": "Fired Brick", "confidence": 0.91}"""
-
-    try:
-        id_response = await generate_with_rotation([id_prompt, image_part], timeout=30.0)
-        text = id_response.text.strip()
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        id_result = json.loads(text.strip())
-    except Exception as e:
-        import traceback
-        print("Gemini ID Error in /scan:", e)
-        print(traceback.format_exc())
-        id_result = {"material": "Concrete", "confidence": 0.5}
-
-    material_name = id_result.get("material", "None")
-    confidence = id_result.get("confidence", 0.0)
-
-    if material_name == "None" or confidence < 0.2:
-        return {
-            "material": "No material detected",
-            "confidence": 0.0,
-            "carbon": 0.0,
-            "cost": 0,
-            "alt": "N/A",
-            "alt_carbon": 0.0,
-            "saving": 0,
-            "urdu_response": "Tasweer mein koi tameeri mawad nahi mila."
-        }
-
-    # ── STAGE 2: Look up hardcoded dictionary (instant, no API call) ─────────
-    material_lower = material_name.lower()
-    matched_key = next((k for k in MATERIALS.keys() if k.lower() in material_lower or material_lower in k.lower()), None)
-
-    if matched_key:
-        # ✅ Found in hardcoded dict — super fast, no extra API call needed
-        d = MATERIALS[matched_key]
+    # ── TIER 1: HuggingFace Minc-23 ⚡ (~400ms for common materials) ──────────
+    hf_key, hf_score = await classify_with_hf(img_bytes)
+    if hf_key and hf_score >= 0.55 and hf_key in MATERIALS:
+        print(f"⚡ Fast path: HF Minc-23 → {hf_key} ({hf_score:.0%})")
+        d = MATERIALS[hf_key]
+        material_name, confidence = hf_key, hf_score
     else:
-        # ── STAGE 3: Unknown material — ask Gemini for eco data ──────────────
-        print(f"Unknown material '{material_name}' — calling Gemini for eco data...")
-        eco_prompt = f"""For the construction material "{material_name}", provide eco-friendly alternative data.
-CRITICAL: Do NOT suggest "Recycled {material_name}" — suggest a completely different innovative substitute.
-Reply ONLY with JSON, no extra text.
-Example: {{"cost": 500, "carbon": 0.4, "alt": "Hempcrete", "alt_carbon": 0.08, "saving": 80, "urdu": "urdu name here"}}"""
-        try:
-            eco_response = await generate_with_rotation(eco_prompt, timeout=25.0)
-            eco_text = eco_response.text.strip()
-            if eco_text.startswith("```"):
-                eco_text = eco_text.split("```")[1]
-                if eco_text.startswith("json"):
-                    eco_text = eco_text[4:]
-            d = json.loads(eco_text.strip())
-        except Exception as e:
-            print("Gemini eco fallback error:", e)
-            d = {"carbon": 0.5, "cost": 500, "alt": "Eco-friendly alternative", "alt_carbon": 0.2, "saving": 35, "urdu": material_name}
+        # ── TIER 2: Groq LLaMA Vision (~1.5–3s) ──────────────────────────────
+        material_name, confidence = None, 0.0
+        if groq_client:
+            try:
+                id_result = await identify_with_groq(img_bytes, content_type)
+                material_name = id_result.get("material", "None")
+                confidence    = id_result.get("confidence", 0.0)
+                print(f"🔄 Groq Vision → {material_name} ({confidence:.0%})")
+            except Exception as e:
+                print(f"Groq Vision error: {e}")
 
-    # ── Build Urdu description ────────────────────────────────────────────────
-    urdu_name = d.get("urdu") or material_name
+        # ── TIER 3: Gemini fallback ────────────────────────────────────────────
+        if not material_name or material_name == "None":
+            try:
+                image_part = {"inline_data": {"mime_type": content_type,
+                              "data": base64.b64encode(img_bytes).decode("utf-8")}}
+                id_prompt = ('Look at this image and identify the primary construction material. '
+                             'If none visible reply: {"material":"None","confidence":0.0} '
+                             'Otherwise reply ONLY JSON. Example: {"material":"Fired Brick","confidence":0.91}')
+                r = await generate_with_rotation([id_prompt, image_part], timeout=30.0)
+                text = r.text.strip()
+                if text.startswith("```"):
+                    text = text.split("```")[1]
+                    if text.startswith("json"): text = text[4:]
+                res = json.loads(text.strip())
+                material_name = res.get("material", "Concrete")
+                confidence    = res.get("confidence", 0.5)
+                print(f"🛡️ Gemini fallback → {material_name} ({confidence:.0%})")
+            except Exception as e:
+                print(f"Gemini ID error: {e}")
+                material_name, confidence = "Concrete", 0.5
 
-    # Carbon saving: calculated from actual carbon vs alt_carbon values
-    carbon = d.get("carbon", 0.5)
-    alt_carbon = d.get("alt_carbon", 0.2)
+        if material_name == "None" or confidence < 0.2:
+            return {"material": "No material detected", "confidence": 0.0,
+                    "carbon": 0.0, "cost": 0, "alt": "N/A", "alt_carbon": 0.0,
+                    "saving": 0, "urdu_response": "Tasweer mein koi tameeri mawad nahi mila."}
+
+        # ── Dict lookup ────────────────────────────────────────────────────────
+        ml = material_name.lower()
+        matched_key = next((k for k in MATERIALS if k.lower() in ml or ml in k.lower()), None)
+        if matched_key:
+            d = MATERIALS[matched_key]
+            material_name = matched_key
+        else:
+            # ── Unknown material: Groq text → Gemini fallback for eco data ────
+            print(f"Unknown '{material_name}' — fetching eco data...")
+            eco_prompt = (f'For construction material "{material_name}", give eco alternative. '
+                          f'NOT "Recycled {material_name}". Reply ONLY JSON: '
+                          f'{{"cost":500,"carbon":0.4,"alt":"Hempcrete","alt_carbon":0.08,'
+                          f'"saving":80,"cost_saving":20,"urdu":"urdu name"}}')
+            d = None
+            if groq_client:
+                try:
+                    d = await get_eco_data_groq(material_name)
+                except Exception as e:
+                    print(f"Groq eco error: {e}")
+            if not d:
+                try:
+                    er = await generate_with_rotation(eco_prompt, timeout=25.0)
+                    et = er.text.strip()
+                    if et.startswith("```"):
+                        et = et.split("```")[1]
+                        if et.startswith("json"): et = et[4:]
+                    d = json.loads(et.strip())
+                except Exception as e:
+                    print(f"Gemini eco error: {e}")
+                    d = {"carbon":0.5,"cost":500,"alt":"Eco-friendly alternative",
+                         "alt_carbon":0.2,"saving":35,"cost_saving":35,"urdu":material_name}
+
+    # ── Build response ─────────────────────────────────────────────────────────
+    urdu_name        = d.get("urdu") or material_name
+    carbon           = d.get("carbon", 0.5)
+    alt_carbon       = d.get("alt_carbon", 0.2)
     carbon_saving_pct = round((carbon - alt_carbon) / carbon * 100) if carbon > 0 else 0
+    cost_saving_pct  = d.get("cost_saving", d.get("saving", 35))
 
-    # Cost saving: use explicit cost_saving field if available, else fall back to saving
-    cost_saving_pct = d.get("cost_saving", d.get("saving", 35))
+    cost_text = (f"aur {cost_saving_pct} fisad sasta bhi hai" if cost_saving_pct >= 0
+                 else f"lekin iski qeemat {abs(cost_saving_pct)} fisad zyada hai — magar durr tak faida deta hai")
+    urdu_text = (f"Yeh {urdu_name} hai. Iska eco alternative {d['alt']} hai "
+                 f"jo {carbon_saving_pct} fisad kam carbon deta hai {cost_text}. "
+                 f"Environment ke liye behtar choice hai.")
 
-    if cost_saving_pct >= 0:
-        cost_text = f"aur {cost_saving_pct} fisad sasta bhi hai"
-    else:
-        cost_text = f"lekin iski qeemat {abs(cost_saving_pct)} fisad zyada hai — magar durr tak faida deta hai"
-
-    urdu_text = (
-        f"Yeh {urdu_name} hai. "
-        f"Iska eco alternative {d['alt']} hai "
-        f"jo {carbon_saving_pct} fisad kam carbon deta hai "
-        f"{cost_text}. "
-        f"Environment ke liye behtar choice hai."
-    )
-
-    return {
-        "material": material_name,
-        "confidence": confidence,
-        "carbon": carbon,
-        "cost": d["cost"],
-        "alt": d["alt"],
-        "alt_carbon": alt_carbon,
-        "carbon_saving_pct": carbon_saving_pct,
-        "cost_saving_pct": cost_saving_pct,
-        "saving": cost_saving_pct,  # kept for backwards compatibility
-        "urdu_response": urdu_text,
-    }
+    return {"material": material_name, "confidence": confidence,
+            "carbon": carbon, "cost": d["cost"], "alt": d["alt"],
+            "alt_carbon": alt_carbon, "carbon_saving_pct": carbon_saving_pct,
+            "cost_saving_pct": cost_saving_pct, "saving": cost_saving_pct,
+            "urdu_response": urdu_text}
 
 @app.post("/speak")
 async def speak_urdu(data: dict):
