@@ -9,27 +9,6 @@ import io, json, base64, os, asyncio, httpx
 
 app = FastAPI()
 
-# ── Global Impact Tracking ───────────────────────────────────────────────────
-IMPACT_FILE = "impact_stats.json"
-
-def load_impact():
-    if os.path.exists(IMPACT_FILE):
-        try:
-            with open(IMPACT_FILE, "r") as f:
-                return json.load(f)
-        except: pass
-    return {"total_scans": 1247, "co2_saved": 4.2, "cost_saved": 2100000}
-
-def save_impact(stats):
-    try:
-        with open(IMPACT_FILE, "w") as f:
-            json.dump(stats, f)
-    except: pass
-
-@app.get("/impact")
-async def get_impact():
-    return load_impact()
-
 # Allow React frontend to call this server
 app.add_middleware(
     CORSMiddleware,
@@ -136,6 +115,16 @@ MINC_TO_MATERIAL = {
     "plastic": "PVC", "painted": "Paint", "mirror": "Glass", "wallpaper": "Paint",
 }
 
+def _sync_classify(img_bytes: bytes):
+    """Helper to perform sync classification and catch StopIteration."""
+    try:
+        return _hf_client.image_classification(
+            image=io.BytesIO(img_bytes),
+            model="prithivMLmods/Minc-Materials-23"
+        )
+    except StopIteration:
+        return []
+
 async def classify_with_hf(img_bytes: bytes):
     """Returns (material_key, confidence) or (None, 0.0) on miss/failure."""
     if not _hf_client:
@@ -143,10 +132,7 @@ async def classify_with_hf(img_bytes: bytes):
     try:
         loop = asyncio.get_event_loop()
         results = await asyncio.wait_for(
-            loop.run_in_executor(None, lambda: _hf_client.image_classification(
-                image=io.BytesIO(img_bytes),
-                model="prithivMLmods/Minc-Materials-23"
-            )),
+            loop.run_in_executor(None, _sync_classify, img_bytes),
             timeout=8.0
         )
         if not results:
@@ -167,14 +153,12 @@ async def warmup_hf():
         return
     print("Warming up HuggingFace Minc-23...")
     try:
-        buf = io.BytesIO()
         from PIL import Image as _Img
+        buf = io.BytesIO()
         _Img.new("RGB", (10, 10), color=(200, 200, 200)).save(buf, format="JPEG")
-        buf.seek(0)
+        img_bytes = buf.getvalue()
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, lambda: _hf_client.image_classification(
-            image=buf, model="prithivMLmods/Minc-Materials-23"
-        ))
+        await loop.run_in_executor(None, _sync_classify, img_bytes)
         print("HF warmup done ✅")
     except Exception as e:
         print(f"HF warmup error (non-fatal): {e}")
@@ -354,16 +338,6 @@ async def scan_material(file: UploadFile = File(...)):
     urdu_text = (f"Yeh {urdu_name} hai. Iska eco alternative {d['alt']} hai "
                  f"jo {carbon_saving_pct} fisad kam carbon deta hai {cost_text}. "
                  f"Environment ke liye behtar choice hai.")
-
-    # ── Update Global Impact ──────────────────────────────────────────────────
-    if material_name != "None" and confidence >= 0.2:
-        stats = load_impact()
-        stats["total_scans"] += 1
-        stats["co2_saved"] += round(carbon - alt_carbon, 3)
-        # For cost saved, use a baseline quantity (e.g., 1 unit) if not specified
-        saving_amt = d.get("cost", 0) * (cost_saving_pct / 100)
-        stats["cost_saved"] += round(max(0, saving_amt), 0)
-        save_impact(stats)
 
     return {"material": material_name, "confidence": confidence,
             "carbon": carbon, "cost": d["cost"], "alt": d["alt"],

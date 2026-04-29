@@ -13,6 +13,41 @@ const getSessionId = () => {
 
 // --- Common Components ---
 
+const BackendStatus = () => {
+    const [isWaking, setIsWaking] = useState(false);
+    
+    useEffect(() => {
+        const wakeBackend = async () => {
+            const lastPing = localStorage.getItem('ecoscan_last_ping');
+            const now = Date.now();
+            
+            // Only ping if last ping was more than 10 mins ago
+            if (!lastPing || (now - parseInt(lastPing)) > 10 * 60 * 1000) {
+                console.log("Waking up backend...");
+                setIsWaking(true);
+                try {
+                    await fetch("https://ecoscan-backend-rxmp.onrender.com/health");
+                    localStorage.setItem('ecoscan_last_ping', now.toString());
+                } catch (e) {
+                    console.error("Wake-up ping failed", e);
+                } finally {
+                    setIsWaking(false);
+                }
+            }
+        };
+        wakeBackend();
+    }, []);
+
+    if (!isWaking) return null;
+    return (
+        <div className="fixed top-14 left-0 w-full z-[100] bg-amber-500/90 backdrop-blur-md text-white text-[10px] font-bold py-1 px-4 flex items-center justify-center gap-2 animate-pulse">
+            <span className="material-symbols-outlined text-xs animate-spin">sync</span>
+            INITIALIZING AI ENGINE... PLEASE WAIT A MOMENT
+        </div>
+    );
+};
+
+
 const TopAppBar = ({ title = "EcoScan", showBack = false, rightIcons = [] }) => {
     const navigate = useNavigate();
     return (
@@ -151,7 +186,8 @@ const ScannerScreen = () => {
             reader.readAsDataURL(blob);
 
         } catch (err) {
-            alert("Scan failed. Is backend running?");
+            console.error(err);
+            alert("Scan failed. The AI engine might be starting up—please try again in 10 seconds.");
             setIsScanning(false);
         }
     };
@@ -177,6 +213,7 @@ const ScannerScreen = () => {
     
     return (
         <div className="bg-background overflow-hidden h-screen">
+            <BackendStatus />
             <TopAppBar rightIcons={[
                 { icon: flashOn ? 'flash_off' : 'flash_on', onClick: toggleFlash }
             ]} />
