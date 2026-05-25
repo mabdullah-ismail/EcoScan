@@ -527,6 +527,61 @@ async def scan_material(file: UploadFile = File(...)):
             "cost_pkr": dynamic_alt["cost_pkr"],
             "urdu": dynamic_alt["urdu"]
         }
+        
+        # ── Self-Learning Database: Populate the newly discovered alternative directly back into MongoDB & Neo4j Graph ──
+        if db is not None:
+            try:
+                # 1. Insert newly discovered alternative into MongoDB materials catalog if missing
+                alt_db_exist = db.materials.find_one({"name": alt_material["name"]})
+                if not alt_db_exist:
+                    db.materials.insert_one({
+                        "name": alt_material["name"],
+                        "category": matched_material.get("category", "General"),
+                        "carbon_kg_co2": alt_material["carbon_kg_co2"],
+                        "cost_pkr": alt_material["cost_pkr"],
+                        "urdu": alt_material["urdu"]
+                    })
+                    print(f"Self-Learning DB: Saved new alternative '{alt_material['name']}' to MongoDB catalog [OK]")
+            except Exception as ex:
+                print(f"Failed to auto-populate new MongoDB material: {ex}")
+
+        if neo4j_driver is not None:
+            try:
+                with neo4j_driver.session() as session:
+                    # 2. Merge the alternative material node into Neo4j
+                    session.run("""
+                        MERGE (alt:Material {name: $alt_name})
+                        ON CREATE SET 
+                            alt.carbon_score = $carbon,
+                            alt.cost_pkr = $cost,
+                            alt.urdu = $urdu,
+                            alt.category = $category
+                    """, alt_name=alt_material["name"], carbon=alt_material["carbon_kg_co2"], cost=alt_material["cost_pkr"], urdu=alt_material["urdu"], category=matched_material.get("category", "General"))
+                    
+                    # 3. Merge the original scanned material node (if missing)
+                    session.run("""
+                        MERGE (m:Material {name: $m_name})
+                        ON CREATE SET 
+                            m.carbon_score = $carbon,
+                            m.cost_pkr = $cost,
+                            m.urdu = $urdu,
+                            m.category = $category
+                    """, m_name=matched_material["name"], carbon=matched_material["carbon_kg_co2"], cost=matched_material["cost_pkr"], urdu=matched_material["urdu"], category=matched_material.get("category", "General"))
+                    
+                    # 4. Connect them with a HAS_ALTERNATIVE relationship in the graph
+                    carbon_reduction_pct = round((matched_material["carbon_kg_co2"] - alt_material["carbon_kg_co2"]) / matched_material["carbon_kg_co2"] * 100) if matched_material["carbon_kg_co2"] > 0 else 50
+                    cost_saved_pct = round((matched_material["cost_pkr"] - alt_material["cost_pkr"]) / matched_material["cost_pkr"] * 100) if matched_material["cost_pkr"] > 0 else 15
+                    
+                    session.run("""
+                        MATCH (a:Material {name: $src}), (b:Material {name: $dest})
+                        MERGE (a)-[r:HAS_ALTERNATIVE]->(b)
+                        ON CREATE SET 
+                            r.carbon_reduction_pct = $carb_saved,
+                            r.cost_delta_pct = $cost_saved
+                    """, src=matched_material["name"], dest=alt_material["name"], carb_saved=carbon_reduction_pct, cost_saved=cost_saved_pct)
+                    print(f"Self-Learning Graph: Created Neo4j relation '{matched_material['name']}' -[:HAS_ALTERNATIVE]-> '{alt_material['name']}' [OK]")
+            except Exception as ex:
+                print(f"Failed to auto-populate new Neo4j relationship: {ex}")
 
     # ── Log Scan to MongoDB (For Analytics Dashboard) ──────────────────────
     carbon_reduction = matched_material["carbon_kg_co2"] - alt_material["carbon_kg_co2"]
