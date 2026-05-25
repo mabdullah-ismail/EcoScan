@@ -123,36 +123,66 @@ async def identify_with_groq(img_bytes: bytes, content_type: str) -> dict:
     return json.loads(text.strip())
 
 async def get_eco_data_groq(material_name: str) -> dict:
-    if not groq_client:
-        raise RuntimeError("Groq not configured")
     prompt = f'For construction material "{material_name}", provide eco-friendly alternative. Do NOT suggest "Recycled {material_name}". Reply ONLY with JSON: {{"cost": 500, "carbon": 0.4, "alt": "Hempcrete", "alt_carbon": 0.08, "saving": 80, "cost_saving": 20, "urdu": "urdu name"}}'
-    resp = await groq_client.chat.completions.create(
-        model="llama3-8b-8192",
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=200, temperature=0.1
-    )
-    text = resp.choices[0].message.content.strip()
-    if text.startswith("```"):
-        text = text.split("```")[1]
-        if text.startswith("json"): text = text[4:]
-    return json.loads(text.strip())
+    
+    # 1. Try Groq first
+    if groq_client:
+        try:
+            resp = await groq_client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=200, temperature=0.1
+            )
+            text = resp.choices[0].message.content.strip()
+            if text.startswith("```"):
+                text = text.split("```")[1]
+                if text.startswith("json"): text = text[4:]
+            return json.loads(text.strip())
+        except Exception as e:
+            print(f"Groq eco data fetch failed: {e}. Trying Gemini fallback...")
+            
+    # 2. Try Gemini fallback
+    try:
+        resp = await generate_with_rotation(prompt, timeout=15.0)
+        text = resp.text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"): text = text[4:]
+        return json.loads(text.strip())
+    except Exception as e:
+        print(f"Gemini eco data fetch failed: {e}")
+        raise RuntimeError("Both Groq and Gemini failed to fetch eco details")
 
 async def get_dynamic_alternative(material_name: str, cost: float, carbon: float) -> dict:
     # Query AI model to dynamically suggest a realistic eco alternative if database has no relation mapped
-    try:
-        prompt = (f'For construction material "{material_name}" (cost: {cost} PKR, carbon: {carbon} kg CO2), '
-                  'provide a realistic, localized eco-friendly alternative available in Pakistan. '
-                  'Reply ONLY with JSON: {"name": "Hempcrete", "carbon_kg_co2": 0.08, "cost_pkr": 140, "urdu": "urdu name"}')
-        if groq_client:
+    prompt = (f'For construction material "{material_name}" (cost: {cost} PKR, carbon: {carbon} kg CO2), '
+              'provide a realistic, localized eco-friendly alternative available in Pakistan. '
+              'Reply ONLY with JSON: {"name": "Hempcrete", "carbon_kg_co2": 0.08, "cost_pkr": 140, "urdu": "urdu name"}')
+              
+    text = None
+    # 1. Try Groq first
+    if groq_client:
+        try:
             resp = await groq_client.chat.completions.create(
-                model="llama3-8b-8192",
+                model="llama-3.1-8b-instant",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=150, temperature=0.1
             )
             text = resp.choices[0].message.content.strip()
-        else:
-            r = await generate_with_rotation(prompt, timeout=10.0)
+        except Exception as e:
+            print(f"Groq dynamic alternative suggestion failed: {e}. Trying Gemini fallback...")
+            
+    # 2. Try Gemini fallback
+    if not text:
+        try:
+            r = await generate_with_rotation(prompt, timeout=15.0)
             text = r.text.strip()
+        except Exception as e:
+            print(f"Gemini dynamic alternative suggestion failed: {e}")
+
+    try:
+        if not text:
+            raise RuntimeError("No LLM response available")
             
         if text.startswith("```"):
             text = text.split("```")[1]
@@ -165,7 +195,7 @@ async def get_dynamic_alternative(material_name: str, cost: float, carbon: float
             "urdu": data.get("urdu", "eco alternative")
         }
     except Exception as e:
-        print(f"Failed to fetch dynamic alternative: {e}")
+        print(f"Failed to parse dynamic alternative: {e}")
         return {
             "name": "Sustainable Variant",
             "carbon_kg_co2": carbon * 0.6,
