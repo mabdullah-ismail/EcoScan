@@ -392,15 +392,23 @@ async def scan_material(file: UploadFile = File(...)):
     # ── Polyglot Persistence Lookup (MongoDB & Neo4j) ─────────────────────────
     matched_material = None
     
-    # Clean string matching helper
-    ml = material_name.lower()
+    # Map raw classifier classes to standard database catalog names
+    mapping_overrides = {
+        "Wood": "Timber",
+        "Glass": "Single Glaze Glass",
+        "Steel": "Steel Rebar",
+        "Tile": "Ceramic Tile",
+        "Brick": "Fired Brick"
+    }
+    db_query_name = mapping_overrides.get(material_name, material_name)
+    ml = db_query_name.lower()
     
     if db is not None:
         # DB Lookup: Fuzzy query name
-        matched_material = db.materials.find_one({"name": {"$regex": f"^{material_name}$", "$options": "i"}})
+        matched_material = db.materials.find_one({"name": {"$regex": f"^{db_query_name}$", "$options": "i"}})
         if not matched_material:
             # Try containment search
-            matched_material = db.materials.find_one({"name": {"$regex": material_name, "$options": "i"}})
+            matched_material = db.materials.find_one({"name": {"$regex": db_query_name, "$options": "i"}})
             
     if not matched_material:
         # Fallback to local map
@@ -417,17 +425,17 @@ async def scan_material(file: UploadFile = File(...)):
 
     if not matched_material:
         # Fetch unknown eco details using Gemini/Groq
-        print(f"Unknown material '{material_name}' — fetching eco details from LLM...")
+        print(f"Unknown material '{db_query_name}' — fetching eco details from LLM...")
         try:
-            d = await get_eco_data_groq(material_name)
+            d = await get_eco_data_groq(db_query_name)
         except Exception:
-            d = {"carbon":0.5,"cost":500,"alt":"Eco alternative","alt_carbon":0.2,"saving":35,"cost_saving":35,"urdu":material_name}
+            d = {"carbon":0.5,"cost":500,"alt":"Eco alternative","alt_carbon":0.2,"saving":35,"cost_saving":35,"urdu":db_query_name}
         
         matched_material = {
-            "name": material_name,
+            "name": db_query_name,
             "carbon_kg_co2": d.get("carbon", 0.5),
             "cost_pkr": d.get("cost", 500),
-            "urdu": d.get("urdu", material_name),
+            "urdu": d.get("urdu", db_query_name),
             "alt": d.get("alt", "Eco alternative")
         }
 
