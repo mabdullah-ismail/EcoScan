@@ -2,6 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { MemoryRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import jsPDF from 'jspdf';
 
+const BACKEND_URL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? "http://localhost:8000"
+    : "https://ecoscan-backend-rxmp.onrender.com";
+
+
 const getSessionId = () => {
     let sid = localStorage.getItem('ecoscan_session_id');
     if (!sid) {
@@ -26,7 +31,7 @@ const BackendStatus = () => {
                 console.log("Waking up backend...");
                 setIsWaking(true);
                 try {
-                    await fetch("https://ecoscan-backend-rxmp.onrender.com/health");
+                    await fetch(`${BACKEND_URL}/health`);
                     localStorage.setItem('ecoscan_last_ping', now.toString());
                 } catch (e) {
                     console.error("Wake-up ping failed", e);
@@ -158,7 +163,7 @@ const ScannerScreen = () => {
         formData.append("file", blob, "capture.jpg");
         
         try {
-            const res = await fetch("https://ecoscan-backend-rxmp.onrender.com/scan", {
+            const res = await fetch(`${BACKEND_URL}/scan`, {
                 method: "POST",
                 body: formData,
             });
@@ -294,7 +299,7 @@ const AnalysisScreen = () => {
         if (isPlaying || !result.urdu_response) return;
         setIsPlaying(true);
         try {
-            const res = await fetch("https://ecoscan-backend-rxmp.onrender.com/speak", {
+            const res = await fetch(`${BACKEND_URL}/speak`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ text: result.urdu_response })
@@ -399,6 +404,12 @@ const AnalysisScreen = () => {
                                 <span className="material-symbols-outlined text-[18px]" style={{fontVariationSettings: "'FILL' 1"}}>check_circle</span>
                                 <span className="font-label-bold">{Math.round(result.confidence * 100)}% Match Confidence</span>
                             </div>
+                            {result.engine && (
+                                <p className="text-[10px] text-slate-400 font-bold mt-1 uppercase flex items-center gap-1">
+                                    <span className="material-symbols-outlined text-xs">memory</span>
+                                    AI Engine: {result.engine}
+                                </p>
+                            )}
                         </div>
                     </div>
                     <div className="bg-surface-container-low rounded-xl p-stack-md flex justify-between items-center border border-outline-variant/30">
@@ -492,6 +503,7 @@ const AnalysisScreen = () => {
 const MarketScreen = () => {
     const [marketData, setMarketData] = useState(null);
     const [suppliers, setSuppliers] = useState([]);
+    const [analytics, setAnalytics] = useState(null);
     const [showNotif, setShowNotif] = useState(false);
     const [estType, setEstType] = useState('house');
     const [estSize, setEstSize] = useState('');
@@ -502,17 +514,19 @@ const MarketScreen = () => {
     const fmt = (n) => '₨' + Number(n).toLocaleString('en-PK');
 
     useEffect(() => {
-        fetch("https://ecoscan-backend-rxmp.onrender.com/market-data")
+        fetch(`${BACKEND_URL}/market-data`)
             .then(r => r.json()).then(setMarketData).catch(console.error);
-        fetch("https://ecoscan-backend-rxmp.onrender.com/suppliers")
+        fetch(`${BACKEND_URL}/suppliers`)
             .then(r => r.json()).then(d => setSuppliers(d.suppliers || [])).catch(console.error);
+        fetch(`${BACKEND_URL}/analytics`)
+            .then(r => r.json()).then(setAnalytics).catch(console.error);
     }, []);
 
     const runEstimate = async () => {
         if (!estSize) return;
         setEstimating(true); setEstimate(null);
         try {
-            const r = await fetch("https://ecoscan-backend-rxmp.onrender.com/estimate", {
+            const r = await fetch(`${BACKEND_URL}/estimate`, {
                 method: "POST", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ type: estType, size: parseInt(estSize), floors: parseInt(estFloors) })
             });
@@ -668,6 +682,45 @@ const MarketScreen = () => {
                         )}
                     </div>
                 </section>
+                {/* ── ADBMS REGIONAL ANALYTICS ── */}
+                {analytics && (
+                <section className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-4">
+                    <div>
+                        <h2 className="font-headline-md text-on-surface flex items-center gap-2">
+                            <span className="material-symbols-outlined text-primary">database</span>
+                            Regional Sustainability Insights
+                        </h2>
+                        <p className="text-xs text-slate-400">Aggregate statistics from MongoDB scans</p>
+                    </div>
+                    
+                    <div className="grid grid-cols-3 gap-2">
+                        <div className="bg-slate-50 rounded-xl p-3 text-center border border-slate-100">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase">Scans Logged</p>
+                            <p className="text-xl font-black text-slate-800">{analytics.total_scans}</p>
+                        </div>
+                        <div className="bg-slate-50 rounded-xl p-3 text-center border border-slate-100">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase">CO₂ Saved</p>
+                            <p className="text-xl font-black text-emerald-600">{analytics.total_carbon_saved_kg} kg</p>
+                        </div>
+                        <div className="bg-slate-50 rounded-xl p-3 text-center border border-slate-100">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase">AI Match Avg</p>
+                            <p className="text-xl font-black text-primary">{analytics.average_confidence}%</p>
+                        </div>
+                    </div>
+
+                    <div className="space-y-2">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-label-bold">Top Green Districts (MongoDB Aggregation)</p>
+                        <div className="space-y-1">
+                            {analytics.savings_by_region?.map((reg, i) => (
+                                <div key={i} className="flex justify-between items-center text-xs py-1.5 border-b border-slate-100 last:border-0">
+                                    <span className="text-slate-600 font-bold">{reg.region}</span>
+                                    <span className="text-emerald-600 font-bold">{reg.scans} scans ({reg.carbon_saved} kg CO₂ saved)</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </section>
+                )}
 
                 {/* ── ECO SUPPLIER MARKETPLACE ── */}
                 <section>
