@@ -33,7 +33,7 @@ if MONGO_URI:
         db = mongo_client.get_database("ecoscan")
         # Quick ping test
         mongo_client.admin.command('ping')
-        print("Connected to MongoDB Atlas ✅")
+        print("Connected to MongoDB Atlas [OK]")
     except Exception as e:
         print(f"MongoDB connection failed: {e}")
 
@@ -44,7 +44,7 @@ neo4j_driver = None
 if NEO4J_URI and NEO4J_PASSWORD:
     try:
         neo4j_driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
-        print("Connected to Neo4j AuraDB ✅")
+        print("Connected to Neo4j AuraDB [OK]")
     except Exception as e:
         print(f"Neo4j connection failed: {e}")
 
@@ -58,7 +58,7 @@ try:
     model_path = os.path.join(os.path.dirname(__file__), "material_classifier.h5")
     if os.path.exists(model_path):
         local_model = tf.keras.models.load_model(model_path)
-        print("Loaded local classifier weights successfully ✅")
+        print("Loaded local classifier weights successfully [OK]")
 except Exception as e:
     print(f"Local model loading skipped/failed (Non-fatal): {e}")
 
@@ -189,7 +189,7 @@ async def warmup_hf():
         img_bytes = buf.getvalue()
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, _sync_classify, img_bytes)
-        print("HF warmup done ✅")
+        print("HF warmup done [OK]")
     except Exception as e:
         print(f"HF warmup error (non-fatal): {e}")
 
@@ -346,7 +346,7 @@ async def scan_material(file: UploadFile = File(...)):
         if hf_key and hf_score >= 0.55:
             material_name, confidence = hf_key, hf_score
             engine = "HuggingFace API (MINC-23)"
-            print(f"⚡ Tier 2: HF Minc-23 → {material_name} ({confidence:.0%})")
+            print(f"[Tier 2] HF Minc-23 -> {material_name} ({confidence:.0%})")
 
     # ── TIER 3: Groq LLaMA Vision Fallback ──────────────────────────────
     if not material_name or confidence < 0.55:
@@ -357,7 +357,7 @@ async def scan_material(file: UploadFile = File(...)):
                 confidence    = id_result.get("confidence", 0.0)
                 if material_name != "None" and confidence >= 0.2:
                     engine = "Groq LLaMA-3.2 Vision"
-                print(f"🔄 Tier 3: Groq Vision → {material_name} ({confidence:.0%})")
+                print(f"[Tier 3] Groq Vision -> {material_name} ({confidence:.0%})")
             except Exception as e:
                 print(f"Groq Vision error: {e}")
 
@@ -378,7 +378,7 @@ async def scan_material(file: UploadFile = File(...)):
             material_name = res.get("material", "Concrete")
             confidence    = res.get("confidence", 0.5)
             engine = "Gemini 2.0 Flash Fallback"
-            print(f"🛡️ Tier 4: Gemini Fallback → {material_name} ({confidence:.0%})")
+            print(f"[Tier 4] Gemini Fallback -> {material_name} ({confidence:.0%})")
         except Exception as e:
             print(f"Gemini ID error: {e}")
             material_name, confidence = "Concrete", 0.5
@@ -450,7 +450,7 @@ async def scan_material(file: UploadFile = File(...)):
                         "cost_pkr": record["cost"],
                         "urdu": record["urdu"]
                     }
-                    print(f"Neo4j Cypher Recommendation (hops={record['hops']}): {alt_material['name']} ✅")
+                    print(f"Neo4j Cypher Recommendation (hops={record['hops']}): {alt_material['name']} [OK]")
         except Exception as e:
             print(f"Neo4j alternative graph traversal failed: {e}")
 
