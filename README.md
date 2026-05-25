@@ -109,6 +109,12 @@ Neo4j is utilized to model alternative material graphs where nodes represent `Ma
   (Material) -[:HAS_ALTERNATIVE {compatibility: "high"}]-> (Material)
   ```
 
+### 3. Dynamic Self-Learning Database Loop (Write-Back Cache)
+When a scanned material has no alternative mapped in either database, the backend triggers the AI fallback to suggest one. To optimize future lookups and eliminate redundant API calls, the system automatically writes the newly discovered data back to the database in real-time:
+* **MongoDB Write-Back:** The newly generated alternative material profile (PKR price, carbon score, unit, and Urdu translation) is inserted as a new document in the `materials` catalog.
+* **Neo4j Write-Back:** A new `Material` node is merged into the graph and connected to the scanned material node with a `:HAS_ALTERNATIVE` relationship, storing the computed carbon reduction percentage and cost offsets.
+* **Result:** On all subsequent scans, the query is resolved directly from the MongoDB catalog and Neo4j graph relationships, completely bypassing the AI.
+
 ---
 
 ## AI Training & Fine-Tuning Pipeline (AI Lab)
