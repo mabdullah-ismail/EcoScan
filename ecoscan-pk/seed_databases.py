@@ -98,7 +98,10 @@ def seed_mongodb():
     
     # 2. Setup Scans Collection & TTL Index (90 days)
     print("🌱 Setting up indexes on 'scans' collection...")
-    db.scans.create_index("timestamp")
+    try:
+        db.scans.drop_index("timestamp_1")
+    except Exception:
+        pass
     # TTL Index (90 days = 7776000 seconds)
     db.scans.create_index("timestamp", expireAfterSeconds=7776000)
     db.scans.create_index([("location", 1), ("timestamp", -1)])
