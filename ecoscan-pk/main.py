@@ -137,6 +137,41 @@ async def get_eco_data_groq(material_name: str) -> dict:
         if text.startswith("json"): text = text[4:]
     return json.loads(text.strip())
 
+async def get_dynamic_alternative(material_name: str, cost: float, carbon: float) -> dict:
+    # Query AI model to dynamically suggest a realistic eco alternative if database has no relation mapped
+    try:
+        prompt = (f'For construction material "{material_name}" (cost: {cost} PKR, carbon: {carbon} kg CO2), '
+                  'provide a realistic, localized eco-friendly alternative available in Pakistan. '
+                  'Reply ONLY with JSON: {"name": "Hempcrete", "carbon_kg_co2": 0.08, "cost_pkr": 140, "urdu": "urdu name"}')
+        if groq_client:
+            resp = await groq_client.chat.completions.create(
+                model="llama3-8b-8192",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=150, temperature=0.1
+            )
+            text = resp.choices[0].message.content.strip()
+        else:
+            r = await generate_with_rotation(prompt, timeout=10.0)
+            text = r.text.strip()
+            
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"): text = text[4:]
+        data = json.loads(text.strip())
+        return {
+            "name": data.get("name", "Eco alternative"),
+            "carbon_kg_co2": float(data.get("carbon_kg_co2", carbon * 0.5)),
+            "cost_pkr": float(data.get("cost_pkr", cost * 0.9)),
+            "urdu": data.get("urdu", "eco alternative")
+        }
+    except Exception as e:
+        print(f"Failed to fetch dynamic alternative: {e}")
+        return {
+            "name": "Sustainable Variant",
+            "carbon_kg_co2": carbon * 0.6,
+            "cost_pkr": cost * 0.9,
+            "urdu": "qabil-e-tajeed badal"
+        }
 
 # ── HuggingFace Minc-23 Fast Classifier ──────────────────────────────────────
 HF_TOKEN = os.getenv("HF_TOKEN")
@@ -477,6 +512,21 @@ async def scan_material(file: UploadFile = File(...)):
                 "cost_pkr": fallback_alt.get("cost"),
                 "urdu": fallback_alt.get("urdu")
             }
+
+    # If alternative is missing or still a generic placeholder, dynamically generate a realistic one using AI
+    if not alt_material or alt_material.get("name") == "Eco alternative" or alt_material.get("name") == "Sustainable Variant":
+        print(f"Generating dynamic AI alternative for '{matched_material['name']}'...")
+        dynamic_alt = await get_dynamic_alternative(
+            matched_material["name"],
+            matched_material["cost_pkr"],
+            matched_material["carbon_kg_co2"]
+        )
+        alt_material = {
+            "name": dynamic_alt["name"],
+            "carbon_kg_co2": dynamic_alt["carbon_kg_co2"],
+            "cost_pkr": dynamic_alt["cost_pkr"],
+            "urdu": dynamic_alt["urdu"]
+        }
 
     # ── Log Scan to MongoDB (For Analytics Dashboard) ──────────────────────
     carbon_reduction = matched_material["carbon_kg_co2"] - alt_material["carbon_kg_co2"]
