@@ -475,6 +475,10 @@ async def scan_material(file: UploadFile = File(...)):
     carbon_saving_pct = round(carbon_reduction / matched_material["carbon_kg_co2"] * 100) if matched_material["carbon_kg_co2"] > 0 else 0
     cost_saving_pct = round((matched_material["cost_pkr"] - alt_material["cost_pkr"]) / matched_material["cost_pkr"] * 100) if matched_material["cost_pkr"] > 0 else 35
 
+    # Encode image bytes to base64 string so the user can see it in MongoDB Atlas and load it in dashboard history
+    img_b64 = base64.b64encode(img_bytes).decode("utf-8")
+    img_data_url = f"data:{content_type};base64,{img_b64}"
+
     if db is not None:
         try:
             db.scans.insert_one({
@@ -484,7 +488,8 @@ async def scan_material(file: UploadFile = File(...)):
                 "recommended_alternative": alt_material["name"],
                 "location": "Lahore, Punjab",
                 "carbon_saved_kg": float(carbon_reduction),
-                "cost_saved_pkr": float(matched_material["cost_pkr"] - alt_material["cost_pkr"])
+                "cost_saved_pkr": float(matched_material["cost_pkr"] - alt_material["cost_pkr"]),
+                "image_data_url": img_data_url
             })
         except Exception as e:
             print(f"Failed to log scan to MongoDB scans collection: {e}")
