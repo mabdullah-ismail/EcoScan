@@ -41,7 +41,7 @@ graph TD
     A[Vite React Frontend] -->|1. Image Upload / JSON Request| B[FastAPI Backend Server]
     
     %% AI Pipeline Group
-    subgraph AI Inference Pipeline (Tiered Fallbacks)
+    subgraph "AI Inference Pipeline (Tiered Fallbacks)"
         B -->|Tier 1: Check Local Model| C{tf.keras loaded?}
         C -->|Yes| D[MobileNetV2 classifier.h5]
         C -->|No / Low Conf| E[HuggingFace Hub API MINC-23]
@@ -50,7 +50,7 @@ graph TD
     end
     
     %% DB Group
-    subgraph Polyglot Database Layer
+    subgraph "Polyglot Database Layer"
         B -->|2. Log Scan / Fetch Details| H[(MongoDB Atlas)]
         B -->|3. Path Traverse Substitution| I[(Neo4j AuraDB Graph)]
         
@@ -198,4 +198,3 @@ python predict.py test_brick.jpg
 ```
 
 ---
-*Created by the EcoScan Team for Advanced Database Systems (ADBMS) and Artificial Intelligence Lab projects.*
