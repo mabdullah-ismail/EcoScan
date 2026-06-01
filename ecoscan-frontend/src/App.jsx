@@ -81,6 +81,7 @@ const BottomNavBar = () => {
         { id: 'analysis', label: 'Analysis', icon: 'analytics', path: '/analysis' },
         { id: 'history', label: 'History', icon: 'history', path: '/history' },
         { id: 'market', label: 'Market', icon: 'trending_up', path: '/market' },
+        { id: 'database', label: 'Database', icon: 'database', path: '/database' },
     ];
 
     return (
@@ -901,6 +902,377 @@ const HistoryScreen = () => {
     );
 };
 
+// --- Database Screen ---
+
+const DatabaseScreen = () => {
+    const [activeTab, setActiveTab] = useState('mongodb');
+    const [mongoStats, setMongoStats] = useState(null);
+    const [neo4jStats, setNeo4jStats] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [selectedMaterial, setSelectedMaterial] = useState('');
+    const navigate = useNavigate();
+
+    useEffect(() => {
+        const fetchStats = async () => {
+            setLoading(true);
+            try {
+                if (activeTab === 'mongodb') {
+                    const res = await fetch(`${BACKEND_URL}/api/db-stats/mongodb`);
+                    const data = await res.json();
+                    setMongoStats(data);
+                } else {
+                    const res = await fetch(`${BACKEND_URL}/api/db-stats/neo4j`);
+                    const data = await res.json();
+                    setNeo4jStats(data);
+                    if (data.materials && data.materials.length > 0) {
+                        const withAlt = data.materials.find(m => 
+                            data.edges.some(e => e.source === m.name)
+                        ) || data.materials[0];
+                        setSelectedMaterial(withAlt.name);
+                    }
+                }
+            } catch (err) {
+                console.error("Error fetching database stats:", err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchStats();
+    }, [activeTab]);
+
+    const handleMaterialChange = (e) => {
+        setSelectedMaterial(e.target.value);
+    };
+
+    const getPathInfo = () => {
+        if (!neo4jStats || !selectedMaterial) return null;
+        const sourceNode = neo4jStats.materials.find(m => m.name === selectedMaterial) || { name: selectedMaterial, carbon: 0.5, cost: 500, category: 'General' };
+        const edge = neo4jStats.edges.find(e => e.source === selectedMaterial);
+        
+        if (!edge) {
+            return {
+                source: sourceNode,
+                target: null,
+                edge: null
+            };
+        }
+
+        const targetNode = neo4jStats.materials.find(m => m.name === edge.target) || { name: edge.target, carbon: sourceNode.carbon * 0.5, cost: sourceNode.cost * 0.9, category: sourceNode.category };
+        return {
+            source: sourceNode,
+            target: targetNode,
+            edge: edge
+        };
+    };
+
+    const pathInfo = getPathInfo();
+
+    return (
+        <div className="bg-slate-50 dark:bg-slate-950 min-h-screen pb-32">
+            <TopAppBar title="EcoScan DB Hub" rightIcons={[]} />
+
+            {/* Sub-tab selection header */}
+            <div className="fixed top-14 left-0 w-full z-45 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 py-2 px-4 flex justify-center gap-4 shadow-sm">
+                <button 
+                    onClick={() => setActiveTab('mongodb')}
+                    className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold font-['Public_Sans'] transition-all ${activeTab === 'mongodb' ? 'bg-[#5E7D6B] text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                >
+                    <span className="material-symbols-outlined text-sm">database</span>
+                    MongoDB Atlas
+                </button>
+                <button 
+                    onClick={() => setActiveTab('neo4j')}
+                    className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold font-['Public_Sans'] transition-all ${activeTab === 'neo4j' ? 'bg-[#5E7D6B] text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                >
+                    <span className="material-symbols-outlined text-sm">hub</span>
+                    Neo4j AuraDB Graph
+                </button>
+            </div>
+
+            <main className="max-w-2xl mx-auto px-4 pt-28 space-y-6">
+                {loading ? (
+                    <div className="py-24 flex flex-col items-center justify-center gap-3">
+                        <span className="material-symbols-outlined text-4xl text-emerald-600 animate-spin">sync</span>
+                        <p className="font-label-bold text-slate-500 dark:text-slate-400">Interrogating Polyglot DBs...</p>
+                    </div>
+                ) : activeTab === 'mongodb' ? (
+                    // MongoDB View
+                    <div className="space-y-6">
+                        {/* Connection status card */}
+                        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-4 shadow-sm flex items-center justify-between">
+                            <div>
+                                <h1 className="font-bold text-slate-800 dark:text-white text-base">MongoDB Atlas Cluster</h1>
+                                <p className="text-xs text-slate-400">Document Store persistent layer</p>
+                            </div>
+                            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${mongoStats?.connected ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950/20 dark:border-emerald-800 dark:text-emerald-400' : 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-950/20 dark:border-rose-800 dark:text-rose-400'}`}>
+                                <span className="relative flex h-2 w-2">
+                                    <span className={`animate-ping absolute h-full w-full rounded-full ${mongoStats?.connected ? 'bg-emerald-400' : 'bg-rose-400'} opacity-75`}></span>
+                                    <span className={`relative rounded-full h-2 w-2 ${mongoStats?.connected ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+                                </span>
+                                <span className="font-label-bold text-[10px]">{mongoStats?.connected ? 'Live (Connected)' : 'Simulated (Offline)'}</span>
+                            </div>
+                        </div>
+
+                        {/* Stats Metrics grid */}
+                        <div className="grid grid-cols-3 gap-3">
+                            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-4 shadow-sm text-center">
+                                <span className="material-symbols-outlined text-emerald-600 text-2xl">category</span>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Materials</p>
+                                <p className="text-xl font-black text-slate-800 dark:text-white">{mongoStats?.document_counts?.materials || 0}</p>
+                            </div>
+                            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-4 shadow-sm text-center">
+                                <span className="material-symbols-outlined text-emerald-600 text-2xl">history</span>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Scans Logged</p>
+                                <p className="text-xl font-black text-slate-800 dark:text-white">{mongoStats?.document_counts?.scans || 0}</p>
+                            </div>
+                            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-4 shadow-sm text-center">
+                                <span className="material-symbols-outlined text-emerald-600 text-2xl">store</span>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Suppliers</p>
+                                <p className="text-xl font-black text-slate-800 dark:text-white">{mongoStats?.document_counts?.contractors || 0}</p>
+                            </div>
+                        </div>
+
+                        {/* Indexes Audit section */}
+                        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-4 shadow-sm space-y-3">
+                            <div>
+                                <h2 className="font-bold text-slate-800 dark:text-white text-sm flex items-center gap-1.5">
+                                    <span className="material-symbols-outlined text-emerald-600 text-lg">segment</span>
+                                    Database Indexes (Performance Optimization)
+                                </h2>
+                                <p className="text-xs text-slate-400">Inspecting indexes on the `scans` collection for high-speed queries</p>
+                            </div>
+                            
+                            <div className="space-y-2">
+                                {mongoStats?.indexes?.map((idx, i) => (
+                                    <div key={i} className="border border-slate-100 dark:border-slate-800 rounded-xl p-3 bg-slate-50 dark:bg-slate-950 flex flex-col gap-1 text-[11px]">
+                                        <div className="flex justify-between items-center">
+                                            <span className="font-bold text-slate-700 dark:text-slate-300">{idx.name}</span>
+                                            {idx.name.includes('ttl') || idx.options?.expireAfterSeconds ? (
+                                                <span className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 text-[9px] px-2 py-0.5 rounded-full font-bold">TTL Expire (90 Days)</span>
+                                            ) : idx.name.includes('detected_material') ? (
+                                                <span className="bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 text-[9px] px-2 py-0.5 rounded-full font-bold">Compound Search Index</span>
+                                            ) : (
+                                                <span className="bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 text-[9px] px-2 py-0.5 rounded-full font-bold">Standard Primary Key</span>
+                                            )}
+                                        </div>
+                                        <p className="text-slate-500 font-mono">Keys: {JSON.stringify(idx.keys)}</p>
+                                        {Object.keys(idx.options || {}).length > 0 && (
+                                            <p className="text-slate-400 font-mono text-[10px]">Options: {JSON.stringify(idx.options)}</p>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Live Aggregation Console */}
+                        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-4 shadow-sm space-y-4">
+                            <div>
+                                <h2 className="font-bold text-slate-800 dark:text-white text-sm flex items-center gap-1.5">
+                                    <span className="material-symbols-outlined text-emerald-600 text-lg">terminal</span>
+                                    Aggregation Pipeline (ADBMS Feature)
+                                </h2>
+                                <p className="text-xs text-slate-400">Groups logged scans by district and calculates carbon saved</p>
+                            </div>
+
+                            <div className="bg-slate-900 rounded-xl p-4 font-mono text-xs text-emerald-400 overflow-x-auto shadow-inner border-2 border-slate-950">
+                                <pre className="whitespace-pre">{mongoStats?.aggregation_query}</pre>
+                            </div>
+
+                            <div className="space-y-2">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-label-bold">Live Execution Results</p>
+                                <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+                                    <table className="w-full text-xs text-left border-collapse">
+                                        <thead>
+                                            <tr className="bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-bold">
+                                                <th className="p-3">Lahore Municipal Zone</th>
+                                                <th className="p-3 text-center">Total Scans</th>
+                                                <th className="p-3 text-right">Saved Carbon (kg CO₂)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {mongoStats?.aggregation_results?.map((res, i) => (
+                                                <tr key={i} className="border-b border-slate-100 dark:border-slate-800 last:border-0 hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                                                    <td className="p-3 font-bold text-slate-700 dark:text-slate-300">{res.region}</td>
+                                                    <td className="p-3 text-center text-slate-500">{res.scans}</td>
+                                                    <td className="p-3 text-right font-bold text-emerald-600 dark:text-emerald-400">{res.carbon_saved} kg</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    // Neo4j View
+                    <div className="space-y-6">
+                        {/* Connection status card */}
+                        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-4 shadow-sm flex items-center justify-between">
+                            <div>
+                                <h1 className="font-bold text-slate-800 dark:text-white text-base">Neo4j AuraDB Graph Instance</h1>
+                                <p className="text-xs text-slate-400">Graph database compatibility routing layer</p>
+                            </div>
+                            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${neo4jStats?.connected ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950/20 dark:border-emerald-800 dark:text-emerald-400' : 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-950/20 dark:border-rose-800 dark:text-rose-400'}`}>
+                                <span className="relative flex h-2 w-2">
+                                    <span className={`animate-ping absolute h-full w-full rounded-full ${neo4jStats?.connected ? 'bg-emerald-400' : 'bg-rose-400'} opacity-75`}></span>
+                                    <span className={`relative rounded-full h-2 w-2 ${neo4jStats?.connected ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+                                </span>
+                                <span className="font-label-bold text-[10px]">{neo4jStats?.connected ? 'Live (Connected)' : 'Simulated (Offline)'}</span>
+                            </div>
+                        </div>
+
+                        {/* Graph Metrics grid */}
+                        <div className="grid grid-cols-3 gap-3">
+                            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-4 shadow-sm text-center">
+                                <span className="material-symbols-outlined text-emerald-600 text-2xl">lens_blur</span>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Total Nodes</p>
+                                <p className="text-xl font-black text-slate-800 dark:text-white">{neo4jStats?.stats?.nodes || 0}</p>
+                            </div>
+                            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-4 shadow-sm text-center">
+                                <span className="material-symbols-outlined text-emerald-600 text-2xl">share</span>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Relationships</p>
+                                <p className="text-xl font-black text-slate-800 dark:text-white">{neo4jStats?.stats?.relationships || 0}</p>
+                            </div>
+                            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-4 shadow-sm text-center">
+                                <span className="material-symbols-outlined text-emerald-600 text-2xl">schema</span>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Active Edges</p>
+                                <p className="text-xl font-black text-slate-800 dark:text-white">HAS_ALTERNATIVE</p>
+                            </div>
+                        </div>
+
+                        {/* Interactive Cypher path playground */}
+                        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-4 shadow-sm space-y-4">
+                            <div>
+                                <h2 className="font-bold text-slate-800 dark:text-white text-sm flex items-center gap-1.5">
+                                    <span className="material-symbols-outlined text-emerald-600 text-lg">query_stats</span>
+                                    Cypher Path Traversal
+                                </h2>
+                                <p className="text-xs text-slate-400">Select a material to visualize its alternative query path in Neo4j</p>
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Source Material Node</label>
+                                <select 
+                                    value={selectedMaterial} 
+                                    onChange={handleMaterialChange} 
+                                    className="w-full border-2 border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2.5 text-sm focus:border-[#5E7D6B] outline-none bg-white dark:bg-slate-950 dark:text-white font-['Public_Sans']"
+                                >
+                                    {neo4jStats?.materials?.map((m, i) => (
+                                        <option key={i} value={m.name}>{m.name} ({m.category})</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {pathInfo && (
+                                <div className="space-y-4">
+                                    {/* Visual Graph rendering */}
+                                    <div className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-880 rounded-2xl p-6 flex flex-col md:flex-row items-center justify-center gap-6 md:gap-12 relative overflow-hidden">
+                                        <div className="absolute top-2 left-2 text-[8px] font-black uppercase text-slate-300 dark:text-slate-700">LIVE GRAPH VIEW</div>
+                                        
+                                        {/* Source Node */}
+                                        <div className="w-36 bg-red-50 dark:bg-red-950/20 border-2 border-red-300 dark:border-red-900 rounded-2xl p-3 text-center shadow-sm relative z-10 flex flex-col justify-center items-center">
+                                            <span className="w-2 h-2 rounded-full bg-red-500 absolute -top-1 -right-1 animate-pulse"></span>
+                                            <span className="material-symbols-outlined text-red-500 text-base">warning</span>
+                                            <span className="font-bold text-xs text-slate-800 dark:text-slate-200 mt-1 block truncate w-full">{pathInfo.source.name}</span>
+                                            <span className="text-[9px] text-slate-400 uppercase mt-0.5 block">{pathInfo.source.category}</span>
+                                            <span className="text-[10px] bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400 font-bold px-2 py-0.5 rounded-full mt-2 block">
+                                                CO₂: {pathInfo.source.carbon} kg
+                                            </span>
+                                        </div>
+
+                                        {/* Directional Edge representation */}
+                                        {pathInfo.target ? (
+                                            <>
+                                                <div className="flex flex-col items-center justify-center relative w-full md:w-auto">
+                                                    {/* Desktop Horizontal arrow */}
+                                                    <div className="hidden md:flex items-center justify-center relative w-20">
+                                                        <div className="w-full h-1 bg-[#5E7D6B]/50"></div>
+                                                        <div className="w-3 h-3 border-t-4 border-r-4 border-[#5E7D6B] rotate-45 -translate-x-1.5"></div>
+                                                    </div>
+                                                    {/* Mobile Vertical arrow */}
+                                                    <div className="md:hidden flex flex-col items-center justify-center relative h-10">
+                                                        <div className="w-1 h-full bg-[#5E7D6B]/50"></div>
+                                                        <div className="w-3 h-3 border-b-4 border-r-4 border-[#5E7D6B] rotate-45 -translate-y-1.5"></div>
+                                                    </div>
+                                                    <span className="absolute bg-[#5E7D6B]/10 border border-[#5E7D6B]/20 text-[#5E7D6B] text-[8px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap -top-3">
+                                                        :HAS_ALTERNATIVE
+                                                    </span>
+                                                    <span className="absolute text-emerald-600 dark:text-emerald-400 text-[10px] font-black top-3 whitespace-nowrap">
+                                                        -{pathInfo.edge.carbon_saved_pct}% Carbon
+                                                    </span>
+                                                </div>
+
+                                                {/* Target Node */}
+                                                <div className="w-36 bg-emerald-50 dark:bg-emerald-950/20 border-2 border-emerald-400 dark:border-emerald-900 rounded-2xl p-3 text-center shadow-md relative z-10 flex flex-col justify-center items-center">
+                                                    <span className="w-2 h-2 rounded-full bg-emerald-500 absolute -top-1 -right-1 animate-ping"></span>
+                                                    <span className="material-symbols-outlined text-emerald-600 text-base">eco</span>
+                                                    <span className="font-bold text-xs text-slate-800 dark:text-slate-200 mt-1 block truncate w-full">{pathInfo.target.name}</span>
+                                                    <span className="text-[9px] text-slate-400 uppercase mt-0.5 block">{pathInfo.target.category}</span>
+                                                    <span className="text-[10px] bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-400 font-bold px-2 py-0.5 rounded-full mt-2 block">
+                                                        CO₂: {pathInfo.target.carbon} kg
+                                                    </span>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <div className="text-slate-400 text-xs italic">No substitute mapped in graph. Trigger fallback system.</div>
+                                        )}
+                                    </div>
+
+                                    {/* Cypher Code Box */}
+                                    <div className="space-y-1.5">
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Cypher Traversal Query</p>
+                                        <div className="bg-slate-900 rounded-xl p-4 font-mono text-xs text-emerald-400 overflow-x-auto shadow-inner border-2 border-slate-950">
+                                            <pre className="whitespace-pre">{neo4jStats?.cypher_traversal?.replace('$name', `"${selectedMaterial}"`)}</pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* All Edges Structure */}
+                        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-4 shadow-sm space-y-3">
+                            <div>
+                                <h2 className="font-bold text-slate-800 dark:text-white text-sm flex items-center gap-1.5">
+                                    <span className="material-symbols-outlined text-emerald-600 text-lg">list_alt</span>
+                                    Active Relationship Matrix (Schema Paths)
+                                </h2>
+                                <p className="text-xs text-slate-400">All matching `:HAS_ALTERNATIVE` edges in the active database schema</p>
+                            </div>
+
+                            <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+                                <table className="w-full text-xs text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-bold">
+                                            <th className="p-3">Source Node</th>
+                                            <th className="p-3 text-center">Compatibility</th>
+                                            <th className="p-3 text-right">Alternative Node (CO₂ Savings)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {neo4jStats?.edges?.map((edge, i) => (
+                                            <tr key={i} className="border-b border-slate-100 dark:border-slate-800 last:border-0 hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                                                <td className="p-3 font-bold text-slate-700 dark:text-slate-300">{edge.source}</td>
+                                                <td className="p-3 text-center">
+                                                    <span className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${edge.compatibility === 'high' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400'}`}>
+                                                        {edge.compatibility}
+                                                    </span>
+                                                </td>
+                                                <td className="p-3 text-right font-bold text-slate-600 dark:text-slate-400">
+                                                    {edge.target} <span className="text-emerald-600 dark:text-emerald-400 text-[10px]">(-{edge.carbon_saved_pct}%)</span>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </main>
+        </div>
+    );
+};
+
 // --- App Setup ---
 
 const App = () => {
@@ -912,6 +1284,7 @@ const App = () => {
                     <Route path="/analysis" element={<AnalysisScreen />} />
                     <Route path="/history" element={<HistoryScreen />} />
                     <Route path="/market" element={<MarketScreen />} />
+                    <Route path="/database" element={<DatabaseScreen />} />
                 </Routes>
                 <BottomNavBar />
             </div>

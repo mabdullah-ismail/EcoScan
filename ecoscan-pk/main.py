@@ -871,3 +871,220 @@ def get_analytics():
     except Exception as e:
         print(f"Aggregation pipeline failed: {e}")
         return {"error": "Failed to compile aggregate analytics"}
+
+# ── DATABASE EXPLORER & ADBMS VIVA ENDPOINTS ───────────────────────────────────
+
+@app.get("/api/db-stats/mongodb")
+def get_mongodb_stats():
+    """
+    Returns real-time statistics, active index definitions, 
+    and the aggregation pipeline queries from MongoDB Atlas.
+    """
+    is_connected = db is not None
+    
+    aggregation_pipeline_code = """db.scans.aggregate([
+  {
+    "$group": {
+      "_id": "$location",
+      "scans": { "$sum": 1 },
+      "carbon_saved": { "$sum": "$carbon_saved_kg" }
+    }
+  },
+  { "$sort": { "scans": -1 } }
+])"""
+
+    if not is_connected:
+        # High-fidelity mock fallback if local/cloud connection is offline
+        return {
+            "connected": False,
+            "document_counts": {
+                "materials": 20,
+                "scans": 37,
+                "contractors": 3
+            },
+            "indexes": [
+                {
+                    "name": "_id_",
+                    "keys": [["_id", 1]],
+                    "options": {}
+                },
+                {
+                    "name": "timestamp_ttl_index",
+                    "keys": [["timestamp", 1]],
+                    "options": {"expireAfterSeconds": 7776000}
+                },
+                {
+                    "name": "detected_material_1_location_1",
+                    "keys": [["detected_material", 1], ["location", 1]],
+                    "options": {}
+                }
+            ],
+            "aggregation_query": aggregation_pipeline_code,
+            "aggregation_results": [
+                {"region": "Gulberg, Lahore", "scans": 12, "carbon_saved": 140.2},
+                {"region": "DHA Phase 6, Lahore", "scans": 6, "carbon_saved": 85.5},
+                {"region": "Johar Town, Lahore", "scans": 19, "carbon_saved": 210.8}
+            ]
+        }
+
+    try:
+        # Get count stats
+        counts = {
+            "materials": db.materials.count_documents({}),
+            "scans": db.scans.count_documents({}),
+            "contractors": db.contractors.count_documents({})
+        }
+
+        # Parse indexes
+        index_info = db.scans.index_information()
+        indexes = []
+        for name, info in index_info.items():
+            indexes.append({
+                "name": name,
+                "keys": info.get("key"),
+                "options": {k: v for k, v in info.items() if k not in ("v", "key")}
+            })
+
+        # Run aggregation
+        pipeline_regions = [
+            {"$group": {
+                "_id": "$location",
+                "scans": {"$sum": 1},
+                "carbon_saved": {"$sum": "$carbon_saved_kg"}
+            }},
+            {"$sort": {"scans": -1}}
+        ]
+        regions = [{"region": r["_id"], "scans": r["scans"], "carbon_saved": round(r["carbon_saved"], 1)} for r in db.scans.aggregate(pipeline_regions)]
+
+        return {
+            "connected": True,
+            "document_counts": counts,
+            "indexes": indexes,
+            "aggregation_query": aggregation_pipeline_code,
+            "aggregation_results": regions
+        }
+    except Exception as e:
+        print(f"MongoDB stats fetch failed: {e}")
+        return {
+            "connected": False,
+            "error": str(e)
+        }
+
+@app.get("/api/db-stats/neo4j")
+def get_neo4j_stats():
+    """
+    Returns real-time graph statistics, Cypher schema query,
+    nodes, and relationships for substitution path rendering.
+    """
+    is_connected = neo4j_driver is not None
+    
+    cypher_traversal_code = """MATCH path = (m:Material {name: $name})-[:HAS_ALTERNATIVE*1..3]->(alt:Material)
+RETURN alt.name AS name, alt.carbon_score AS carbon, alt.cost_pkr AS cost, length(path) AS hops
+ORDER BY alt.carbon_score ASC LIMIT 1"""
+
+    cypher_all_rels_code = """MATCH (m:Material)-[r:HAS_ALTERNATIVE]->(a:Material)
+RETURN m.name as source, a.name as target, r.carbon_reduction_pct as carbon_saved_pct, r.cost_delta_pct as cost_saved_pct"""
+
+    # Offline/Fallback dataset matches seeded database
+    fallback_materials = [
+        {"name": "OPC Cement", "category": "Cement", "carbon": 0.83, "cost": 1480, "urdu": "ordinary cement"},
+        {"name": "Fired Brick", "category": "Brick", "carbon": 0.24, "cost": 12, "urdu": "pakki eent"},
+        {"name": "Concrete", "category": "Concrete", "carbon": 0.41, "cost": 180, "urdu": "concrete"},
+        {"name": "River Sand", "category": "Sand", "carbon": 0.05, "cost": 38000, "urdu": "darya ki ret"},
+        {"name": "Steel Rebar", "category": "Steel", "carbon": 1.46, "cost": 320, "urdu": "saria"},
+        {"name": "Timber", "category": "Wood", "carbon": 0.31, "cost": 850, "urdu": "lakri"},
+        {"name": "Ceramic Tile", "category": "Tile", "carbon": 0.59, "cost": 95, "urdu": "ceramic tile"},
+        {"name": "Paint", "category": "Paint", "carbon": 2.1, "cost": 1200, "urdu": "rang"},
+        {"name": "PVC", "category": "PVC", "carbon": 2.5, "cost": 280, "urdu": "plastic pipe"}
+    ]
+
+    fallback_edges = [
+        {"source": "OPC Cement", "target": "Fly Ash / Slag Cement", "carbon_saved_pct": 58, "cost_saved_pct": 15, "compatibility": "high"},
+        {"source": "Fired Brick", "target": "AAC Blocks", "carbon_saved_pct": 62, "cost_saved_pct": 30, "compatibility": "high"},
+        {"source": "Concrete", "target": "Fly Ash Concrete", "carbon_saved_pct": 49, "cost_saved_pct": 20, "compatibility": "high"},
+        {"source": "River Sand", "target": "Crushed Stone Sand (Washed)", "carbon_saved_pct": 60, "cost_saved_pct": 10, "compatibility": "high"},
+        {"source": "Steel Rebar", "target": "Recycled Steel Rebar", "carbon_saved_pct": 58, "cost_saved_pct": 15, "compatibility": "high"},
+        {"source": "Timber", "target": "Bamboo", "carbon_saved_pct": 84, "cost_saved_pct": 47, "compatibility": "high"},
+        {"source": "Ceramic Tile", "target": "Earth/Clay Wall Plaster", "carbon_saved_pct": 86, "cost_saved_pct": 55, "compatibility": "medium"},
+        {"source": "Paint", "target": "Low-VOC Water-Based Paints", "carbon_saved_pct": 57, "cost_saved_pct": 10, "compatibility": "high"},
+        {"source": "PVC", "target": "PPRC Piping", "carbon_saved_pct": 56, "cost_saved_pct": -15, "compatibility": "high"}
+    ]
+
+    if not is_connected:
+        return {
+            "connected": False,
+            "stats": {
+                "nodes": len(fallback_materials) + 5,
+                "relationships": len(fallback_edges),
+                "labels": {"Material": len(fallback_materials), "Category": 5}
+            },
+            "materials": fallback_materials,
+            "edges": fallback_edges,
+            "cypher_traversal": cypher_traversal_code,
+            "cypher_all_rels": cypher_all_rels_code
+        }
+
+    try:
+        with neo4j_driver.session() as session:
+            # Query counts
+            node_res = session.run("MATCH (n) RETURN labels(n)[0] as label, count(*) as count")
+            labels = {}
+            total_nodes = 0
+            for record in node_res:
+                label = record["label"] or "Unlabeled"
+                count = record["count"]
+                labels[label] = count
+                total_nodes += count
+                
+            rel_res = session.run("MATCH ()-[r]->() RETURN type(r) as type, count(*) as count")
+            total_rels = 0
+            for record in rel_res:
+                total_rels += record["count"]
+
+            # Query materials list
+            mat_res = session.run("MATCH (m:Material) RETURN m.name as name, m.category as category, m.carbon_score as carbon, m.cost_pkr as cost, m.urdu as urdu ORDER BY m.name")
+            materials = [{"name": r["name"], "category": r.get("category", "General"), "carbon": r.get("carbon", 0.0), "cost": r.get("cost", 0.0), "urdu": r.get("urdu", "")} for r in mat_res]
+
+            # Query all HAS_ALTERNATIVE relationships
+            edge_res = session.run("""
+                MATCH (m:Material)-[r:HAS_ALTERNATIVE]->(a:Material)
+                RETURN m.name as source, a.name as target, r.carbon_reduction_pct as carbon_saved_pct, r.cost_delta_pct as cost_saved_pct, r.compatibility as compatibility
+            """)
+            edges = []
+            for r in edge_res:
+                edges.append({
+                    "source": r["source"],
+                    "target": r["target"],
+                    "carbon_saved_pct": r["carbon_saved_pct"] or 50,
+                    "cost_saved_pct": r["cost_saved_pct"] or 15,
+                    "compatibility": r["compatibility"] or "high"
+                })
+
+            return {
+                "connected": True,
+                "stats": {
+                    "nodes": total_nodes,
+                    "relationships": total_rels,
+                    "labels": labels
+                },
+                "materials": materials,
+                "edges": edges,
+                "cypher_traversal": cypher_traversal_code,
+                "cypher_all_rels": cypher_all_rels_code
+            }
+    except Exception as e:
+        print(f"Neo4j stats query failed: {e}")
+        return {
+            "connected": False,
+            "error": str(e),
+            "stats": {
+                "nodes": len(fallback_materials) + 5,
+                "relationships": len(fallback_edges),
+                "labels": {"Material": len(fallback_materials), "Category": 5}
+            },
+            "materials": fallback_materials,
+            "edges": fallback_edges,
+            "cypher_traversal": cypher_traversal_code,
+            "cypher_all_rels": cypher_all_rels_code
+        }
+

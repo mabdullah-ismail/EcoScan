@@ -115,6 +115,11 @@ When a scanned material has no alternative mapped in either database, the backen
 * **Neo4j Write-Back:** A new `Material` node is merged into the graph and connected to the scanned material node with a `:HAS_ALTERNATIVE` relationship, storing the computed carbon reduction percentage and cost offsets.
 * **Result:** On all subsequent scans, the query is resolved directly from the MongoDB catalog and Neo4j graph relationships, completely bypassing the AI.
 
+### 4. Interactive Polyglot Database Explorer (Admin Console)
+To inspect and demonstrate the database architecture in real time, the React application includes a dedicated **Database Hub** view:
+* **MongoDB Atlas Console:** Displays active collection counts, lists active MongoDB indexes (specifically verifying the TTL log expiration and the compound search index), and executes and renders live MongoDB Aggregation pipelines (grouping scans by Lahore municipal zone).
+* **Neo4j AuraDB Graph Hub:** Interrogates active node and relationship schemas, lists the compatibility matrix, and visualizes multi-hop substitution paths using an interactive visual node-link interface running live Cypher queries.
+
 ---
 
 ## AI Training & Fine-Tuning Pipeline (AI Lab)
