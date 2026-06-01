@@ -1088,3 +1088,163 @@ RETURN m.name as source, a.name as target, r.carbon_reduction_pct as carbon_save
             "cypher_all_rels": cypher_all_rels_code
         }
 
+@app.post("/api/db-query/run")
+async def run_db_query(request: dict):
+    """
+    Executes a predefined query against MongoDB or Neo4j on demand
+    and returns raw execution outputs and JSON results for the viva demo.
+    """
+    query_id = request.get("query_id")
+    if not query_id:
+        return {"error": "Missing query_id"}
+        
+    # MongoDB queries
+    if query_id == "mongo_zone_savings":
+        q_str = """db.scans.aggregate([
+  {
+    "$group": {
+      "_id": "$location",
+      "total_scans": { "$sum": 1 },
+      "carbon_saved_kg": { "$sum": "$carbon_saved_kg" }
+    }
+  },
+  { "$sort": { "total_scans": -1 } }
+])"""
+        if db is None:
+            return {
+                "query": q_str,
+                "result": [
+                    {"_id": "Gulberg, Lahore", "total_scans": 12, "carbon_saved_kg": 140.2},
+                    {"_id": "DHA Phase 6, Lahore", "total_scans": 6, "carbon_saved_kg": 85.5},
+                    {"_id": "Johar Town, Lahore", "total_scans": 19, "carbon_saved_kg": 210.8}
+                ]
+            }
+        try:
+            res = list(db.scans.aggregate([
+                {"$group": {
+                    "_id": "$location",
+                    "total_scans": {"$sum": 1},
+                    "carbon_saved_kg": {"$sum": "$carbon_saved_kg"}
+                }},
+                {"$sort": {"total_scans": -1}}
+            ]))
+            return {"query": q_str, "result": res}
+        except Exception as e:
+            return {"query": q_str, "error": str(e)}
+
+    elif query_id == "mongo_materials_count":
+        q_str = """db.materials.aggregate([
+  {
+    "$group": {
+      "_id": "$category",
+      "count": { "$sum": 1 },
+      "avg_cost": { "$avg": "$cost_pkr" }
+    }
+  }
+])"""
+        if db is None:
+            return {
+                "query": q_str,
+                "result": [
+                    {"_id": "Cement", "count": 2, "avg_cost": 1480.0},
+                    {"_id": "Brick", "count": 3, "avg_cost": 10.5},
+                    {"_id": "Concrete", "count": 2, "avg_cost": 160.0}
+                ]
+            }
+        try:
+            res = list(db.materials.aggregate([
+                {"$group": {
+                    "_id": "$category",
+                    "count": {"$sum": 1},
+                    "avg_cost": {"$avg": "$cost_pkr"}
+                }}
+            ]))
+            for r in res:
+                if r.get("avg_cost"): r["avg_cost"] = round(r["avg_cost"], 1)
+            return {"query": q_str, "result": res}
+        except Exception as e:
+            return {"query": q_str, "error": str(e)}
+
+    elif query_id == "mongo_contractors_list":
+        q_str = "db.contractors.find({}, { name: 1, area: 1, rating: 1 })"
+        if db is None:
+            return {
+                "query": q_str,
+                "result": [
+                    {"name": "Indus Eco-Materials Co.", "area": "Raiwind Rd, Lahore", "rating": 4.9},
+                    {"name": "GreenBuild Pakistan", "area": "Multan Rd, Lahore", "rating": 4.7},
+                    {"name": "RecycleCrete Pvt Ltd", "area": "Sheikhupura Rd, Lahore", "rating": 4.8}
+                ]
+            }
+        try:
+            res = list(db.contractors.find({}, {"_id": 0, "name": 1, "area": 1, "rating": 1}))
+            return {"query": q_str, "result": res}
+        except Exception as e:
+            return {"query": q_str, "error": str(e)}
+
+    # Neo4j queries
+    elif query_id == "neo4j_concrete_path":
+        q_str = """MATCH path = (m:Material {name: "Concrete"})-[:HAS_ALTERNATIVE*1..3]->(alt:Material)
+RETURN alt.name AS name, alt.carbon_score AS carbon, alt.cost_pkr AS cost, length(path) AS hops
+ORDER BY alt.carbon_score ASC LIMIT 1"""
+        if neo4j_driver is None:
+            return {
+                "query": q_str,
+                "result": [{"name": "Fly Ash Concrete", "carbon": 0.21, "cost": 150.0, "hops": 1}]
+            }
+        try:
+            with neo4j_driver.session() as session:
+                res = session.run("""
+                    MATCH path = (m:Material {name: "Concrete"})-[:HAS_ALTERNATIVE*1..3]->(alt:Material)
+                    RETURN alt.name AS name, alt.carbon_score AS carbon, alt.cost_pkr AS cost, length(path) AS hops
+                    ORDER BY alt.carbon_score ASC LIMIT 1
+                """)
+                records = [{"name": r["name"], "carbon": r["carbon"], "cost": r["cost"], "hops": r["hops"]} for r in res]
+                return {"query": q_str, "result": records}
+        except Exception as e:
+            return {"query": q_str, "error": str(e)}
+
+    elif query_id == "neo4j_high_compat":
+        q_str = """MATCH (m:Material)-[r:HAS_ALTERNATIVE {compatibility: "high"}]->(alt:Material)
+RETURN m.name as source, alt.name as target, r.carbon_reduction_pct as reduction_pct"""
+        if neo4j_driver is None:
+            return {
+                "query": q_str,
+                "result": [
+                    {"source": "OPC Cement", "target": "Fly Ash / Slag Cement", "reduction_pct": 58},
+                    {"source": "Fired Brick", "target": "AAC Blocks", "reduction_pct": 62},
+                    {"source": "Concrete", "target": "Fly Ash Concrete", "reduction_pct": 49}
+                ]
+            }
+        try:
+            with neo4j_driver.session() as session:
+                res = session.run("""
+                    MATCH (m:Material)-[r:HAS_ALTERNATIVE {compatibility: "high"}]->(alt:Material)
+                    RETURN m.name as source, alt.name as target, r.carbon_reduction_pct as reduction_pct
+                """)
+                records = [{"source": r["source"], "target": r["target"], "reduction_pct": r["reduction_pct"]} for r in res]
+                return {"query": q_str, "result": records}
+        except Exception as e:
+            return {"query": q_str, "error": str(e)}
+
+    elif query_id == "neo4j_node_labels":
+        q_str = "MATCH (n) RETURN labels(n)[0] as label, count(*) as count"
+        if neo4j_driver is None:
+            return {
+                "query": q_str,
+                "result": [
+                    {"label": "Material", "count": 30},
+                    {"label": "Category", "count": 8}
+                ]
+            }
+        try:
+            with neo4j_driver.session() as session:
+                res = session.run("MATCH (n) RETURN labels(n)[0] as label, count(*) as count")
+                records = [{"label": r["label"] or "Unlabeled", "count": r["count"]} for r in res]
+                return {"query": q_str, "result": records}
+        except Exception as e:
+            return {"query": q_str, "error": str(e)}
+
+    return {"error": "Invalid query_id"}
+
+

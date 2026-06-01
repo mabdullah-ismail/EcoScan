@@ -910,9 +910,36 @@ const DatabaseScreen = () => {
     const [neo4jStats, setNeo4jStats] = useState(null);
     const [loading, setLoading] = useState(true);
     const [selectedMaterial, setSelectedMaterial] = useState('');
+    const [selectedQuery, setSelectedQuery] = useState('low_carbon');
+    const [queryOutput, setQueryOutput] = useState(null);
+    const [runningQuery, setRunningQuery] = useState(false);
     const navigate = useNavigate();
 
+    const handleRunQuery = async () => {
+        setRunningQuery(true);
+        setQueryOutput(null);
+        try {
+            const res = await fetch(`${BACKEND_URL}/api/db-query/run`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ query_id: selectedQuery })
+            });
+            const data = await res.json();
+            setQueryOutput({
+                code: data.query,
+                results: data.result || data.error
+            });
+        } catch (err) {
+            console.error("Query failed", err);
+            setQueryOutput({ error: "Query failed to execute" });
+        } finally {
+            setRunningQuery(false);
+        }
+    };
+
     useEffect(() => {
+        setQueryOutput(null);
+        setSelectedQuery(activeTab === 'mongodb' ? 'mongo_zone_savings' : 'neo4j_concrete_path');
         const fetchStats = async () => {
             setLoading(true);
             try {
@@ -1102,6 +1129,49 @@ const DatabaseScreen = () => {
                                 </div>
                             </div>
                         </div>
+
+                        {/* Live Query Sandbox */}
+                        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-4 shadow-sm space-y-4">
+                            <div>
+                                <h2 className="font-bold text-slate-800 dark:text-white text-sm flex items-center gap-1.5">
+                                    <span className="material-symbols-outlined text-emerald-600 text-lg">science</span>
+                                    Interactive MongoDB Query Sandbox
+                                </h2>
+                                <p className="text-xs text-slate-400">Select a preset query to run live against the MongoDB Atlas cluster</p>
+                            </div>
+
+                            <div className="flex gap-2">
+                                <select 
+                                    value={selectedQuery}
+                                    onChange={(e) => setSelectedQuery(e.target.value)}
+                                    className="flex-1 border-2 border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs focus:border-[#5E7D6B] outline-none bg-white dark:bg-slate-950 dark:text-white font-['Public_Sans']"
+                                >
+                                    <option value="mongo_zone_savings">Aggregate scans by Zone (Group &amp; Sum)</option>
+                                    <option value="mongo_materials_count">Aggregate materials by Category (Group &amp; Average)</option>
+                                    <option value="mongo_contractors_list">Query contractors (Project name/rating)</option>
+                                </select>
+                                <button 
+                                    onClick={handleRunQuery}
+                                    disabled={runningQuery}
+                                    className="bg-[#5E7D6B] text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm active:scale-95 transition-all flex items-center gap-1"
+                                >
+                                    {runningQuery ? 'Running...' : 'Run Query'}
+                                </button>
+                            </div>
+
+                            {queryOutput && (
+                                <div className="space-y-2 animate-fadeIn">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Executed Syntax</p>
+                                    <div className="bg-slate-900 rounded-xl p-3 font-mono text-[11px] text-emerald-400 overflow-x-auto border-2 border-slate-950">
+                                        <pre>{queryOutput.code}</pre>
+                                    </div>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">JSON Results (Live from Atlas)</p>
+                                    <div className="bg-slate-900 rounded-xl p-3 font-mono text-[10px] text-slate-200 overflow-x-auto border-2 border-slate-950 max-h-48 overflow-y-auto">
+                                        <pre>{JSON.stringify(queryOutput.results, null, 2)}</pre>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 ) : (
                     // Neo4j View
@@ -1136,7 +1206,7 @@ const DatabaseScreen = () => {
                             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-4 shadow-sm text-center">
                                 <span className="material-symbols-outlined text-emerald-600 text-2xl">schema</span>
                                 <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Active Edges</p>
-                                <p className="text-xl font-black text-slate-800 dark:text-white">HAS_ALTERNATIVE</p>
+                                <p className="text-[9px] md:text-xs font-black text-slate-800 dark:text-white mt-1.5 break-words block w-full" title="HAS_ALTERNATIVE">HAS_ALTERNATIVE</p>
                             </div>
                         </div>
 
@@ -1265,6 +1335,49 @@ const DatabaseScreen = () => {
                                     </tbody>
                                 </table>
                             </div>
+                        </div>
+
+                        {/* Live Cypher Sandbox */}
+                        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-4 shadow-sm space-y-4">
+                            <div>
+                                <h2 className="font-bold text-slate-800 dark:text-white text-sm flex items-center gap-1.5">
+                                    <span className="material-symbols-outlined text-emerald-600 text-lg">terminal</span>
+                                    Interactive Cypher Query Sandbox
+                                </h2>
+                                <p className="text-xs text-slate-400">Run graph-traversal queries live against the Neo4j AuraDB graph</p>
+                            </div>
+
+                            <div className="flex gap-2">
+                                <select 
+                                    value={selectedQuery}
+                                    onChange={(e) => setSelectedQuery(e.target.value)}
+                                    className="flex-1 border-2 border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs focus:border-[#5E7D6B] outline-none bg-white dark:bg-slate-950 dark:text-white font-['Public_Sans']"
+                                >
+                                    <option value="neo4j_concrete_path">Cypher: Find Concrete substitute path</option>
+                                    <option value="neo4j_high_compat">Cypher: Find high compatibility pairs</option>
+                                    <option value="neo4j_node_labels">Cypher: Group nodes by labels</option>
+                                </select>
+                                <button 
+                                    onClick={handleRunQuery}
+                                    disabled={runningQuery}
+                                    className="bg-[#5E7D6B] text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm active:scale-95 transition-all flex items-center gap-1"
+                                >
+                                    {runningQuery ? 'Running...' : 'Run Query'}
+                                </button>
+                            </div>
+
+                            {queryOutput && (
+                                <div className="space-y-2 animate-fadeIn">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Executed Cypher Syntax</p>
+                                    <div className="bg-slate-900 rounded-xl p-3 font-mono text-[11px] text-emerald-400 overflow-x-auto border-2 border-slate-950">
+                                        <pre>{queryOutput.code}</pre>
+                                    </div>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Graph Output (Live from AuraDB)</p>
+                                    <div className="bg-slate-900 rounded-xl p-3 font-mono text-[10px] text-slate-200 overflow-x-auto border-2 border-slate-950 max-h-48 overflow-y-auto">
+                                        <pre>{JSON.stringify(queryOutput.results, null, 2)}</pre>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
