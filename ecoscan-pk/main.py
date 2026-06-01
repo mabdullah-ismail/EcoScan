@@ -5,7 +5,7 @@ from google.cloud import texttospeech
 from groq import AsyncGroq
 from huggingface_hub import InferenceClient
 from PIL import Image
-import io, json, base64, os, asyncio, httpx, datetime
+import io, json, base64, os, asyncio, httpx, datetime, re
 from dotenv import load_dotenv
 from pymongo import MongoClient
 from neo4j import GraphDatabase
@@ -1247,6 +1247,62 @@ RETURN m.name as source, alt.name as target, r.carbon_reduction_pct as reduction
 
     return {"error": "Invalid query_id"}
 
+def clean_and_parse_relaxed_json(json_str: str):
+    # Remove single line comments
+    json_str = re.sub(r'//.*', '', json_str)
+    # Replace single quotes with double quotes
+    json_str = re.sub(r"'(.*?)'", r'"\1"', json_str)
+    # Quote unquoted keys (including those starting with $)
+    json_str = re.sub(r'(?<!["\'])([a-zA-Z_$][a-zA-Z0-9_$]*)(?!\s*["\'])\s*:', r'"\1":', json_str)
+    # Also convert javascript booleans / null
+    json_str = re.sub(r'\btrue\b', 'true', json_str)
+    json_str = re.sub(r'\bfalse\b', 'false', json_str)
+    json_str = re.sub(r'\bnull\b', 'null', json_str)
+    return json.loads(json_str)
+
+def parse_mongodb_shell_query(query_str: str):
+    query_str = query_str.strip()
+    
+    # Strip outer braces if the statement is wrapped like:
+    # {
+    #   db.contractors.find(...)
+    # }
+    if query_str.startswith("{") and query_str.endswith("}") and "db." in query_str:
+        inner = query_str[1:-1].strip()
+        if "db." in inner:
+            query_str = inner
+            
+    match = re.search(r'db\.([a-zA-Z0-9_]+)\.(find|aggregate)\((.*)\)', query_str, re.DOTALL)
+    if match:
+        collection = match.group(1)
+        method = match.group(2)
+        args_str = match.group(3).strip()
+        
+        args = []
+        brace_level = 0
+        bracket_level = 0
+        current_arg = []
+        for char in args_str:
+            if char == '{': brace_level += 1
+            elif char == '}': brace_level -= 1
+            elif char == '[': bracket_level += 1
+            elif char == ']': bracket_level -= 1
+            
+            if char == ',' and brace_level == 0 and bracket_level == 0:
+                args.append("".join(current_arg).strip())
+                current_arg = []
+            else:
+                current_arg.append(char)
+        if current_arg:
+            args.append("".join(current_arg).strip())
+            
+        return {
+            "collection": collection,
+            "method": method,
+            "args": args
+        }
+    return None
+
 @app.post("/api/db-query/custom")
 async def run_custom_db_query(request: dict):
     """
@@ -1256,24 +1312,64 @@ async def run_custom_db_query(request: dict):
     db_type = request.get("database")
     
     if db_type == "mongodb":
+        query_str = request.get("query", "{}").strip()
         collection_name = request.get("collection", "scans")
         method = request.get("method", "find")
-        query_str = request.get("query", "{}").strip()
         
         if db is None:
             return {"error": "MongoDB Atlas connection is offline"}
             
+        # Try to parse standard db.collection.find(...) shell statement
+        shell_parsed = parse_mongodb_shell_query(query_str)
+        args_str = ""
+        projection_obj = None
+        
         try:
-            query_obj = json.loads(query_str) if query_str else {}
+            if shell_parsed:
+                collection_name = shell_parsed["collection"]
+                method = shell_parsed["method"]
+                args = shell_parsed["args"]
+                args_str = shell_parsed["args"][0] if len(shell_parsed["args"]) > 0 else "{}"
+                
+                if method == "find":
+                    query_obj = clean_and_parse_relaxed_json(args[0]) if len(args) > 0 and args[0] else {}
+                    projection_obj = clean_and_parse_relaxed_json(args[1]) if len(args) > 1 and args[1] else None
+                elif method == "aggregate":
+                    query_obj = clean_and_parse_relaxed_json(args[0]) if len(args) > 0 and args[0] else []
+                else:
+                    return {"error": f"Unsupported method parsed: {method}"}
+            else:
+                # Raw object input
+                if method == "find":
+                    query_obj = clean_and_parse_relaxed_json(query_str) if query_str else {}
+                    projection_obj = None
+                elif method == "aggregate":
+                    query_obj = clean_and_parse_relaxed_json(query_str) if query_str else []
+                else:
+                    return {"error": f"Unsupported method: {method}"}
         except Exception as e:
-            return {"error": f"Invalid JSON format: {e}. Remember to wrap keys in double quotes."}
+            return {"error": f"Failed to parse query input: {e}. Check quotes and braces structure."}
             
         try:
+            # Check if collection name is valid to prevent accessing internal/private DB collections
+            if collection_name not in ["scans", "materials", "contractors"]:
+                return {"error": f"Collection '{collection_name}' not allowed. Choose from: scans, materials, contractors"}
+                
             col = db[collection_name]
             if method == "find":
-                cursor = col.find(query_obj, {"_id": 0})
-                res = list(cursor.limit(20))
-                return {"result": res, "query": f"db.{collection_name}.find({query_str})"}
+                if projection_obj:
+                    cursor = col.find(query_obj, projection_obj)
+                else:
+                    cursor = col.find(query_obj, {"_id": 0})
+                res = []
+                for doc in cursor:
+                    if "_id" in doc:
+                        doc["_id"] = str(doc["_id"])
+                    res.append(doc)
+                return {
+                    "result": res[:20], 
+                    "query": f"db.{collection_name}.find({query_str if not shell_parsed else args_str})"
+                }
             elif method == "aggregate":
                 if not isinstance(query_obj, list):
                     return {"error": "Aggregation pipeline must be a JSON array: [ {\"$group\": ...}, ... ]"}
@@ -1283,9 +1379,10 @@ async def run_custom_db_query(request: dict):
                     if "_id" in doc and not isinstance(doc["_id"], str) and doc["_id"] is not None:
                         doc["_id"] = str(doc["_id"])
                     res.append(doc)
-                return {"result": res[:20], "query": f"db.{collection_name}.aggregate({query_str})"}
-            else:
-                return {"error": f"Unsupported method: {method}"}
+                return {
+                    "result": res[:20], 
+                    "query": f"db.{collection_name}.aggregate({query_str if not shell_parsed else args_str})"
+                }
         except Exception as e:
             return {"error": f"MongoDB Execution failed: {e}"}
             
