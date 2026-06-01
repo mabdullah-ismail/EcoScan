@@ -1247,4 +1247,68 @@ RETURN m.name as source, alt.name as target, r.carbon_reduction_pct as reduction
 
     return {"error": "Invalid query_id"}
 
+@app.post("/api/db-query/custom")
+async def run_custom_db_query(request: dict):
+    """
+    Runs arbitrary user-written queries (JSON for MongoDB, Cypher for Neo4j) 
+    live against the database and returns raw results.
+    """
+    db_type = request.get("database")
+    
+    if db_type == "mongodb":
+        collection_name = request.get("collection", "scans")
+        method = request.get("method", "find")
+        query_str = request.get("query", "{}").strip()
+        
+        if db is None:
+            return {"error": "MongoDB Atlas connection is offline"}
+            
+        try:
+            query_obj = json.loads(query_str) if query_str else {}
+        except Exception as e:
+            return {"error": f"Invalid JSON format: {e}. Remember to wrap keys in double quotes."}
+            
+        try:
+            col = db[collection_name]
+            if method == "find":
+                cursor = col.find(query_obj, {"_id": 0})
+                res = list(cursor.limit(20))
+                return {"result": res, "query": f"db.{collection_name}.find({query_str})"}
+            elif method == "aggregate":
+                if not isinstance(query_obj, list):
+                    return {"error": "Aggregation pipeline must be a JSON array: [ {\"$group\": ...}, ... ]"}
+                cursor = col.aggregate(query_obj)
+                res = []
+                for doc in cursor:
+                    if "_id" in doc and not isinstance(doc["_id"], str) and doc["_id"] is not None:
+                        doc["_id"] = str(doc["_id"])
+                    res.append(doc)
+                return {"result": res[:20], "query": f"db.{collection_name}.aggregate({query_str})"}
+            else:
+                return {"error": f"Unsupported method: {method}"}
+        except Exception as e:
+            return {"error": f"MongoDB Execution failed: {e}"}
+            
+    elif db_type == "neo4j":
+        query_str = request.get("query", "").strip()
+        if not query_str:
+            return {"error": "Empty Cypher query string"}
+            
+        if neo4j_driver is None:
+            return {"error": "Neo4j AuraDB connection is offline"}
+            
+        try:
+            with neo4j_driver.session() as session:
+                res = session.run(query_str)
+                records = []
+                for record in res:
+                    # Convert to standard dictionary
+                    records.append(dict(record))
+                return {"result": records[:20], "query": query_str}
+        except Exception as e:
+            return {"error": f"Cypher Execution failed: {e}"}
+            
+    return {"error": "Invalid database type"}
+
+
 

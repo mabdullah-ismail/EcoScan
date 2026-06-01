@@ -910,35 +910,74 @@ const DatabaseScreen = () => {
     const [neo4jStats, setNeo4jStats] = useState(null);
     const [loading, setLoading] = useState(true);
     const [selectedMaterial, setSelectedMaterial] = useState('');
-    const [selectedQuery, setSelectedQuery] = useState('low_carbon');
+    const [selectedQuery, setSelectedQuery] = useState('mongo_zone_savings');
     const [queryOutput, setQueryOutput] = useState(null);
     const [runningQuery, setRunningQuery] = useState(false);
+    
+    // Custom query mode state variables
+    const [customMode, setCustomMode] = useState(false);
+    const [customCollection, setCustomCollection] = useState('scans');
+    const [customMethod, setCustomMethod] = useState('find');
+    const [customQueryText, setCustomQueryText] = useState('{}');
+    
     const navigate = useNavigate();
 
     const handleRunQuery = async () => {
         setRunningQuery(true);
         setQueryOutput(null);
         try {
-            const res = await fetch(`${BACKEND_URL}/api/db-query/run`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ query_id: selectedQuery })
-            });
+            let res;
+            if (customMode) {
+                const payload = activeTab === 'mongodb'
+                    ? { database: 'mongodb', collection: customCollection, method: customMethod, query: customQueryText }
+                    : { database: 'neo4j', query: customQueryText };
+                res = await fetch(`${BACKEND_URL}/api/db-query/custom`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+            } else {
+                res = await fetch(`${BACKEND_URL}/api/db-query/run`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ query_id: selectedQuery })
+                });
+            }
             const data = await res.json();
-            setQueryOutput({
-                code: data.query,
-                results: data.result || data.error
-            });
+            if (data.error) {
+                setQueryOutput({
+                    code: data.query || (customMode ? "Custom Query Error" : "Preset Query Error"),
+                    results: { error: data.error }
+                });
+            } else {
+                setQueryOutput({
+                    code: data.query,
+                    results: data.result
+                });
+            }
         } catch (err) {
             console.error("Query failed", err);
-            setQueryOutput({ error: "Query failed to execute" });
+            setQueryOutput({ results: { error: "Query failed to execute. Is backend awake?" } });
         } finally {
             setRunningQuery(false);
         }
     };
 
+    // Keep custom query sample text populated with valid structure
     useEffect(() => {
         setQueryOutput(null);
+        if (activeTab === 'mongodb') {
+            if (customMethod === 'find') {
+                setCustomQueryText('{\n  "detected_material": "Concrete"\n}');
+            } else {
+                setCustomQueryText('[\n  {\n    "$group": {\n      "_id": "$detected_material",\n      "count": { "$sum": 1 }\n    }\n  }\n]');
+            }
+        } else {
+            setCustomQueryText('MATCH (m:Material) RETURN m.name, m.carbon_score LIMIT 5');
+        }
+    }, [activeTab, customMethod, customMode]);
+
+    useEffect(() => {
         setSelectedQuery(activeTab === 'mongodb' ? 'mongo_zone_savings' : 'neo4j_concrete_path');
         const fetchStats = async () => {
             setLoading(true);
@@ -1132,32 +1171,115 @@ const DatabaseScreen = () => {
 
                         {/* Live Query Sandbox */}
                         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-4 shadow-sm space-y-4">
-                            <div>
-                                <h2 className="font-bold text-slate-800 dark:text-white text-sm flex items-center gap-1.5">
-                                    <span className="material-symbols-outlined text-emerald-600 text-lg">science</span>
-                                    Interactive MongoDB Query Sandbox
-                                </h2>
-                                <p className="text-xs text-slate-400">Select a preset query to run live against the MongoDB Atlas cluster</p>
-                            </div>
-
-                            <div className="flex gap-2">
-                                <select 
-                                    value={selectedQuery}
-                                    onChange={(e) => setSelectedQuery(e.target.value)}
-                                    className="flex-1 border-2 border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs focus:border-[#5E7D6B] outline-none bg-white dark:bg-slate-950 dark:text-white font-['Public_Sans']"
-                                >
-                                    <option value="mongo_zone_savings">Aggregate scans by Zone (Group &amp; Sum)</option>
-                                    <option value="mongo_materials_count">Aggregate materials by Category (Group &amp; Average)</option>
-                                    <option value="mongo_contractors_list">Query contractors (Project name/rating)</option>
-                                </select>
+                            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                                <div>
+                                    <h2 className="font-bold text-slate-800 dark:text-white text-sm flex items-center gap-1.5">
+                                        <span className="material-symbols-outlined text-emerald-600 text-lg">science</span>
+                                        Interactive MongoDB Query Sandbox
+                                    </h2>
+                                    <p className="text-xs text-slate-400">
+                                        {customMode ? "Write your own MongoDB JSON queries to execute live" : "Select a preset query to run live against the MongoDB Atlas cluster"}
+                                    </p>
+                                </div>
                                 <button 
-                                    onClick={handleRunQuery}
-                                    disabled={runningQuery}
-                                    className="bg-[#5E7D6B] text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm active:scale-95 transition-all flex items-center gap-1"
+                                    onClick={() => { setCustomMode(!customMode); setQueryOutput(null); }}
+                                    className={`flex items-center gap-1 px-3 py-1 rounded-lg text-[10px] font-black uppercase border transition-all ${customMode ? 'bg-[#5E7D6B] text-white border-[#5E7D6B]' : 'bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800'}`}
                                 >
-                                    {runningQuery ? 'Running...' : 'Run Query'}
+                                    <span className="material-symbols-outlined text-[12px]">{customMode ? 'settings_backup_restore' : 'edit_note'}</span>
+                                    {customMode ? 'Presets' : 'Write Custom'}
                                 </button>
                             </div>
+
+                            {customMode ? (
+                                <div className="space-y-3">
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Collection</label>
+                                            <select 
+                                                value={customCollection}
+                                                onChange={(e) => setCustomCollection(e.target.value)}
+                                                className="w-full border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs focus:border-[#5E7D6B] outline-none bg-white dark:bg-slate-950 dark:text-white font-['Public_Sans']"
+                                            >
+                                                <option value="scans">scans</option>
+                                                <option value="materials">materials</option>
+                                                <option value="contractors">contractors</option>
+                                            </select>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Method</label>
+                                            <select 
+                                                value={customMethod}
+                                                onChange={(e) => setCustomMethod(e.target.value)}
+                                                className="w-full border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs focus:border-[#5E7D6B] outline-none bg-white dark:bg-slate-950 dark:text-white font-['Public_Sans']"
+                                            >
+                                                <option value="find">find()</option>
+                                                <option value="aggregate">aggregate()</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-1">
+                                        <div className="flex justify-between items-center">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Query JSON String</label>
+                                            <span className="text-[9px] text-[#5E7D6B] dark:text-[#7ba58c] font-semibold">db.{customCollection}.{customMethod === 'find' ? 'find' : 'aggregate'}(...)</span>
+                                        </div>
+                                        <textarea
+                                            value={customQueryText}
+                                            onChange={(e) => setCustomQueryText(e.target.value)}
+                                            rows={4}
+                                            className="w-full border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-xs font-mono focus:border-[#5E7D6B] outline-none bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100"
+                                            placeholder={customMethod === 'find' ? '{\n  "detected_material": "Concrete"\n}' : '[\n  {\n    "$group": {\n      "_id": "$detected_material",\n      "count": { "$sum": 1 }\n    }\n  }\n]'}
+                                        />
+                                    </div>
+
+                                    <button 
+                                        onClick={handleRunQuery}
+                                        disabled={runningQuery}
+                                        className="w-full bg-[#5E7D6B] hover:bg-[#4d6859] disabled:bg-[#5E7D6B]/50 text-white py-2.5 rounded-xl text-xs font-bold shadow-sm transition-all flex items-center justify-center gap-1.5"
+                                    >
+                                        {runningQuery ? (
+                                            <>
+                                                <span className="material-symbols-outlined text-sm animate-spin">sync</span>
+                                                <span>Executing Query...</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span className="material-symbols-outlined text-sm">play_arrow</span>
+                                                <span>Run Live Query</span>
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="flex gap-2">
+                                    <select 
+                                        value={selectedQuery}
+                                        onChange={(e) => setSelectedQuery(e.target.value)}
+                                        className="flex-1 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs focus:border-[#5E7D6B] outline-none bg-white dark:bg-slate-950 dark:text-white font-['Public_Sans']"
+                                    >
+                                        <option value="mongo_zone_savings">Aggregate scans by Zone (Group &amp; Sum)</option>
+                                        <option value="mongo_materials_count">Aggregate materials by Category (Group &amp; Average)</option>
+                                        <option value="mongo_contractors_list">Query contractors (Project name/rating)</option>
+                                    </select>
+                                    <button 
+                                        onClick={handleRunQuery}
+                                        disabled={runningQuery}
+                                        className="bg-[#5E7D6B] hover:bg-[#4d6859] disabled:bg-[#5E7D6B]/50 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm active:scale-95 transition-all flex items-center gap-1"
+                                    >
+                                        {runningQuery ? (
+                                            <>
+                                                <span className="material-symbols-outlined text-sm animate-spin">sync</span>
+                                                <span>Running...</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span className="material-symbols-outlined text-sm">play_arrow</span>
+                                                <span>Run Query</span>
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                            )}
 
                             {queryOutput && (
                                 <div className="space-y-2 animate-fadeIn">
@@ -1339,32 +1461,89 @@ const DatabaseScreen = () => {
 
                         {/* Live Cypher Sandbox */}
                         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-4 shadow-sm space-y-4">
-                            <div>
-                                <h2 className="font-bold text-slate-800 dark:text-white text-sm flex items-center gap-1.5">
-                                    <span className="material-symbols-outlined text-emerald-600 text-lg">terminal</span>
-                                    Interactive Cypher Query Sandbox
-                                </h2>
-                                <p className="text-xs text-slate-400">Run graph-traversal queries live against the Neo4j AuraDB graph</p>
-                            </div>
-
-                            <div className="flex gap-2">
-                                <select 
-                                    value={selectedQuery}
-                                    onChange={(e) => setSelectedQuery(e.target.value)}
-                                    className="flex-1 border-2 border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs focus:border-[#5E7D6B] outline-none bg-white dark:bg-slate-950 dark:text-white font-['Public_Sans']"
-                                >
-                                    <option value="neo4j_concrete_path">Cypher: Find Concrete substitute path</option>
-                                    <option value="neo4j_high_compat">Cypher: Find high compatibility pairs</option>
-                                    <option value="neo4j_node_labels">Cypher: Group nodes by labels</option>
-                                </select>
+                            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                                <div>
+                                    <h2 className="font-bold text-slate-800 dark:text-white text-sm flex items-center gap-1.5">
+                                        <span className="material-symbols-outlined text-emerald-600 text-lg">terminal</span>
+                                        Interactive Cypher Query Sandbox
+                                    </h2>
+                                    <p className="text-xs text-slate-400">
+                                        {customMode ? "Write arbitrary Cypher queries to execute live against AuraDB" : "Run graph-traversal queries live against the Neo4j AuraDB graph"}
+                                    </p>
+                                </div>
                                 <button 
-                                    onClick={handleRunQuery}
-                                    disabled={runningQuery}
-                                    className="bg-[#5E7D6B] text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm active:scale-95 transition-all flex items-center gap-1"
+                                    onClick={() => { setCustomMode(!customMode); setQueryOutput(null); }}
+                                    className={`flex items-center gap-1 px-3 py-1 rounded-lg text-[10px] font-black uppercase border transition-all ${customMode ? 'bg-[#5E7D6B] text-white border-[#5E7D6B]' : 'bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-880'}`}
                                 >
-                                    {runningQuery ? 'Running...' : 'Run Query'}
+                                    <span className="material-symbols-outlined text-[12px]">{customMode ? 'settings_backup_restore' : 'edit_note'}</span>
+                                    {customMode ? 'Presets' : 'Write Custom'}
                                 </button>
                             </div>
+
+                            {customMode ? (
+                                <div className="space-y-3">
+                                    <div className="space-y-1">
+                                        <div className="flex justify-between items-center">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Cypher Statement</label>
+                                            <span className="text-[9px] text-[#5E7D6B] dark:text-[#7ba58c] font-semibold">Cypher Query</span>
+                                        </div>
+                                        <textarea
+                                            value={customQueryText}
+                                            onChange={(e) => setCustomQueryText(e.target.value)}
+                                            rows={4}
+                                            className="w-full border-2 border-slate-200 dark:border-slate-850 rounded-xl p-3 text-xs font-mono focus:border-[#5E7D6B] outline-none bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100"
+                                            placeholder="MATCH (n:Material) RETURN n.name, n.carbon_score LIMIT 10"
+                                        />
+                                    </div>
+
+                                    <button 
+                                        onClick={handleRunQuery}
+                                        disabled={runningQuery}
+                                        className="w-full bg-[#5E7D6B] hover:bg-[#4d6859] disabled:bg-[#5E7D6B]/50 text-white py-2.5 rounded-xl text-xs font-bold shadow-sm transition-all flex items-center justify-center gap-1.5"
+                                    >
+                                        {runningQuery ? (
+                                            <>
+                                                <span className="material-symbols-outlined text-sm animate-spin">sync</span>
+                                                <span>Executing Cypher...</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span className="material-symbols-outlined text-sm">play_arrow</span>
+                                                <span>Run Live Cypher Query</span>
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="flex gap-2">
+                                    <select 
+                                        value={selectedQuery}
+                                        onChange={(e) => setSelectedQuery(e.target.value)}
+                                        className="flex-1 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs focus:border-[#5E7D6B] outline-none bg-white dark:bg-slate-950 dark:text-white font-['Public_Sans']"
+                                    >
+                                        <option value="neo4j_concrete_path">Cypher: Find Concrete substitute path</option>
+                                        <option value="neo4j_high_compat">Cypher: Find high compatibility pairs</option>
+                                        <option value="neo4j_node_labels">Cypher: Group nodes by labels</option>
+                                    </select>
+                                    <button 
+                                        onClick={handleRunQuery}
+                                        disabled={runningQuery}
+                                        className="bg-[#5E7D6B] hover:bg-[#4d6859] disabled:bg-[#5E7D6B]/50 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm active:scale-95 transition-all flex items-center gap-1"
+                                    >
+                                        {runningQuery ? (
+                                            <>
+                                                <span className="material-symbols-outlined text-sm animate-spin">sync</span>
+                                                <span>Running...</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span className="material-symbols-outlined text-sm">play_arrow</span>
+                                                <span>Run Query</span>
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                            )}
 
                             {queryOutput && (
                                 <div className="space-y-2 animate-fadeIn">
