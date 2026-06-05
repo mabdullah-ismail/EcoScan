@@ -748,26 +748,50 @@ async def estimate_project(data: dict):
     ]
     items = []
     for r in raw:
-        # Load material cost from MongoDB
+        # Initialize defaults
         cost = 500
         alt = "Eco alternative"
         cost_saving_pct = 15
-        
+
         if db is not None:
             m = db.materials.find_one({"name": r["key"]})
             if m:
                 cost = m.get("cost_pkr", 500)
-                alt = m.get("alt", alt)
-                alt_db = db.materials.find_one({"name": alt})
-                if alt_db:
-                    alt_cost = alt_db.get("cost_pkr", cost)
-                    cost_saving_pct = round((cost - alt_cost) / cost * 100) if cost > 0 else 15
         else:
             m = MATERIALS_FALLBACK.get(r["key"], {})
             if m:
                 cost = m.get("cost", 500)
-                alt = m.get("alt", alt)
-                cost_saving_pct = m.get("cost_saving", 15)
+
+        # 2. Look up the alternative name
+        # A. Try Neo4j first
+        if neo4j_driver is not None:
+            try:
+                with neo4j_driver.session() as session:
+                    result = session.run("""
+                        MATCH (m:Material {name: $name})-[rel:HAS_ALTERNATIVE]->(alt:Material)
+                        RETURN alt.name AS name, rel.cost_delta_pct AS cost_saved
+                        LIMIT 1
+                    """, name=r["key"])
+                    record = result.single()
+                    if record:
+                        alt = record["name"]
+                        cost_saving_pct = record["cost_saved"]
+            except Exception as e:
+                print(f"Neo4j alternative lookup failed in estimator for {r['key']}: {e}")
+
+        # B. Fall back to local map if alternative not found via Neo4j
+        if alt == "Eco alternative":
+            m_fallback = MATERIALS_FALLBACK.get(r["key"], {})
+            if m_fallback:
+                alt = m_fallback.get("alt", "Eco alternative")
+                cost_saving_pct = m_fallback.get("cost_saving", 15)
+
+        # 3. Calculate dynamic cost savings from MongoDB if connected
+        if db is not None and alt != "Eco alternative":
+            alt_db = db.materials.find_one({"name": alt})
+            if alt_db:
+                alt_cost = alt_db.get("cost_pkr", cost)
+                cost_saving_pct = round((cost - alt_cost) / cost * 100) if cost > 0 else 15
 
         qty  = round(total * r["ratio"])
         total_cost = qty * cost
