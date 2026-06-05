@@ -511,8 +511,36 @@ const MarketScreen = () => {
     const [estFloors, setEstFloors] = useState('1');
     const [estimate, setEstimate] = useState(null);
     const [estimating, setEstimating] = useState(false);
+    const [areaUnit, setAreaUnit] = useState('sqft');
 
     const fmt = (n) => '₨' + Number(n).toLocaleString('en-PK');
+
+    const handleUnitChange = (newUnit) => {
+        if (newUnit === areaUnit) return;
+        setAreaUnit(newUnit);
+        if (estSize) {
+            const val = parseFloat(estSize);
+            if (!isNaN(val)) {
+                if (newUnit === 'marla') {
+                    setEstSize((Math.round((val / 225) * 100) / 100).toString());
+                } else {
+                    setEstSize(Math.round(val * 225).toString());
+                }
+            }
+        }
+    };
+
+    const getConvertedLabel = () => {
+        const val = parseFloat(estSize);
+        if (!estSize || isNaN(val)) return '';
+        if (areaUnit === 'sqft') {
+            const marlaVal = Math.round((val / 225) * 100) / 100;
+            return `≈ ${marlaVal} Marla`;
+        } else {
+            const sqftVal = Math.round(val * 225);
+            return `≈ ${sqftVal.toLocaleString()} Sq Ft`;
+        }
+    };
 
     useEffect(() => {
         fetch(`${BACKEND_URL}/market-data`)
@@ -525,11 +553,15 @@ const MarketScreen = () => {
 
     const runEstimate = async () => {
         if (!estSize) return;
+        const sizeVal = parseFloat(estSize);
+        if (isNaN(sizeVal)) return;
+        const sizeInSqft = areaUnit === 'marla' ? Math.round(sizeVal * 225) : Math.round(sizeVal);
+
         setEstimating(true); setEstimate(null);
         try {
             const r = await fetch(`${BACKEND_URL}/estimate`, {
                 method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ type: estType, size: parseInt(estSize), floors: parseInt(estFloors) })
+                body: JSON.stringify({ type: estType, size: sizeInSqft, floors: parseInt(estFloors) })
             });
             const data = await r.json();
             if (!r.ok || !data.items) {
@@ -552,7 +584,8 @@ const MarketScreen = () => {
         doc.text("Current Rates:", 20, 75); let y = 82;
         marketData.items.forEach(item => { doc.text(`- ${item.name}: ${item.price} (${item.trend})`, 20, y); y += 10; });
         if (estimate) {
-            doc.text(`Project Estimate (${estSize} sqft):`, 20, y + 5);
+            const sizeLabel = areaUnit === 'marla' ? `${estSize} Marla (~${Math.round(parseFloat(estSize) * 225)} sqft)` : `${estSize} sqft`;
+            doc.text(`Project Estimate (${sizeLabel}):`, 20, y + 5);
             doc.text(`Standard: ${fmt(estimate.total_cost)} | Eco: ${fmt(estimate.eco_total)} | Save: ${estimate.savings_pct}%`, 20, y + 15);
         }
         doc.save("ecoscan_planning_report.pdf");
@@ -636,16 +669,59 @@ const MarketScreen = () => {
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                             <div>
-                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Area (sqft)</label>
-                                <input type="number" value={estSize} onChange={e => setEstSize(e.target.value)} placeholder="e.g. 1500"
-                                    className="w-full mt-1 border-2 border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-primary outline-none transition-colors" />
+                                <div className="flex justify-between items-center mb-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                        Area ({areaUnit === 'sqft' ? 'Sq Ft' : 'Marla'})
+                                    </label>
+                                    <div className="flex bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5 border border-slate-200 dark:border-slate-700">
+                                        <button 
+                                            type="button"
+                                            onClick={() => handleUnitChange('sqft')}
+                                            className={`px-2 py-0.5 text-[9px] font-bold rounded transition-all ${areaUnit === 'sqft' ? 'bg-white dark:bg-slate-700 text-[#466453] dark:text-emerald-400 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                                        >
+                                            Sq Ft
+                                        </button>
+                                        <button 
+                                            type="button"
+                                            onClick={() => handleUnitChange('marla')}
+                                            className={`px-2 py-0.5 text-[9px] font-bold rounded transition-all ${areaUnit === 'marla' ? 'bg-white dark:bg-slate-700 text-[#466453] dark:text-emerald-400 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                                        >
+                                            Marla
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="relative">
+                                    <input type="number" value={estSize} onChange={e => setEstSize(e.target.value)} placeholder={areaUnit === 'sqft' ? 'e.g. 1500' : 'e.g. 5'}
+                                        className="w-full mt-1 border-2 border-slate-200 dark:border-slate-700 rounded-xl pl-3 pr-14 py-2.5 text-sm focus:border-primary outline-none transition-colors dark:bg-slate-900 dark:text-white" />
+                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 mt-0.5">
+                                        {areaUnit === 'sqft' ? 'Sq Ft' : 'Marla'}
+                                    </span>
+                                </div>
                             </div>
                             <div>
-                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Floors</label>
-                                <select value={estFloors} onChange={e => setEstFloors(e.target.value)} className="w-full mt-1 border-2 border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-primary outline-none bg-white">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Floors</label>
+                                <select value={estFloors} onChange={e => setEstFloors(e.target.value)} className="w-full mt-2 border-2 border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm focus:border-primary outline-none bg-white dark:bg-slate-900 dark:text-white">
                                     {[1,2,3,4,5].map(f => <option key={f} value={f}>{f} Floor{f>1?'s':''}</option>)}
                                 </select>
                             </div>
+                        </div>
+                        <div className="space-y-1 pt-1">
+                            <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 px-1">
+                                <span>{areaUnit === 'sqft' ? '225 Sq Ft' : '1 Marla'}</span>
+                                <span className="text-[#466453] dark:text-emerald-400 font-extrabold text-xs">
+                                    {getConvertedLabel()}
+                                </span>
+                                <span>{areaUnit === 'sqft' ? '11,250 Sq Ft' : '50 Marla'}</span>
+                            </div>
+                            <input 
+                                type="range" 
+                                min={areaUnit === 'sqft' ? 225 : 1} 
+                                max={areaUnit === 'sqft' ? 11250 : 50} 
+                                step={areaUnit === 'sqft' ? 225 : 0.5} 
+                                value={estSize || (areaUnit === 'sqft' ? 1125 : 5)} 
+                                onChange={e => setEstSize(e.target.value)}
+                                className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-[#466453] dark:accent-emerald-400 border border-slate-200 dark:border-slate-700"
+                            />
                         </div>
                         <button onClick={runEstimate} disabled={estimating || !estSize}
                             className="w-full py-3 bg-primary text-white rounded-xl font-label-bold flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95 transition-all">
