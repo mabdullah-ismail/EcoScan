@@ -532,7 +532,7 @@ const MarketScreen = () => {
 
     const getConvertedLabel = () => {
         const val = parseFloat(estSize);
-        if (!estSize || isNaN(val)) return '';
+        if (!estSize || isNaN(val) || val <= 0) return '';
         if (areaUnit === 'sqft') {
             const marlaVal = Math.round((val / 225) * 100) / 100;
             return `≈ ${marlaVal} Marla`;
@@ -554,7 +554,7 @@ const MarketScreen = () => {
     const runEstimate = async () => {
         if (!estSize) return;
         const sizeVal = parseFloat(estSize);
-        if (isNaN(sizeVal)) return;
+        if (isNaN(sizeVal) || sizeVal <= 0) return;
         const sizeInSqft = areaUnit === 'marla' ? Math.round(sizeVal * 225) : Math.round(sizeVal);
 
         setEstimating(true); setEstimate(null);
@@ -691,8 +691,21 @@ const MarketScreen = () => {
                                     </div>
                                 </div>
                                 <div className="relative">
-                                    <input type="number" value={estSize} onChange={e => setEstSize(e.target.value)} placeholder={areaUnit === 'sqft' ? 'e.g. 1500' : 'e.g. 5'}
-                                        className="w-full mt-1 border-2 border-slate-200 dark:border-slate-700 rounded-xl pl-3 pr-14 py-2.5 text-sm focus:border-primary outline-none transition-colors dark:bg-slate-900 dark:text-white" />
+                                    <input 
+                                        type="number" 
+                                        min="0"
+                                        value={estSize} 
+                                        onChange={e => {
+                                            const val = e.target.value;
+                                            if (val.includes('-')) {
+                                                setEstSize(val.replace(/-/g, ''));
+                                            } else {
+                                                setEstSize(val);
+                                            }
+                                        }} 
+                                        placeholder={areaUnit === 'sqft' ? 'e.g. 1500' : 'e.g. 5'}
+                                        className="w-full mt-1 border-2 border-slate-200 dark:border-slate-700 rounded-xl pl-3 pr-14 py-2.5 text-sm focus:border-primary outline-none transition-colors dark:bg-slate-900 dark:text-white" 
+                                    />
                                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 mt-0.5">
                                         {areaUnit === 'sqft' ? 'Sq Ft' : 'Marla'}
                                     </span>
@@ -723,7 +736,7 @@ const MarketScreen = () => {
                                 className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-[#466453] dark:accent-emerald-400 border border-slate-200 dark:border-slate-700"
                             />
                         </div>
-                        <button onClick={runEstimate} disabled={estimating || !estSize}
+                        <button onClick={runEstimate} disabled={estimating || !estSize || parseFloat(estSize) <= 0}
                             className="w-full py-3 bg-primary text-white rounded-xl font-label-bold flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95 transition-all">
                             {estimating
                                 ? <><span className="material-symbols-outlined text-sm animate-spin">progress_activity</span>Calculating...</>
